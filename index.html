@@ -14,51 +14,24 @@
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Gowun+Dodum&display=swap');
-        body { font-family: 'Gowun Dodum', sans-serif; background-color: #e5e5e5; margin: 0; padding: 0; overflow: hidden; }
-        
-        /* 앱 레이아웃 컨테이너 */
-        .app-shell {
-            width: 100%; max-width: 480px; height: 100vh;
-            background-color: #F7F4EB; display: flex; flex-direction: column;
-            margin: 0 auto; box-shadow: 0 0 20px rgba(0,0,0,0.1); position: relative;
-        }
-
-        /* 스크롤 가능한 본문 영역 */
-        .main-content {
-            flex: 1; overflow-y: auto; padding-bottom: 90px;
-            scrollbar-width: none; -ms-overflow-style: none;
-        }
+        body { font-family: 'Gowun Dodum', sans-serif; background-color: #e5e5e5; margin: 0; }
+        .app-shell { width: 100%; max-width: 480px; height: 100vh; background-color: #F7F4EB; display: flex; flex-direction: column; margin: 0 auto; position: relative; box-shadow: 0 0 20px rgba(0,0,0,0.1); }
+        .main-content { flex: 1; overflow-y: auto; padding-bottom: 90px; }
         .main-content::-webkit-scrollbar { display: none; }
-
-        /* 하단 고정 탭바 */
-        .bottom-nav {
-            position: absolute; bottom: 0; width: 100%; height: 75px;
-            background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px);
-            display: flex; justify-content: space-around; align-items: center;
-            border-top: 1px solid #eee; padding-bottom: env(safe-area-inset-bottom); z-index: 1000;
-        }
-
-        /* 줄칸 편지지 UI */
-        .letter-paper {
-            background-image: linear-gradient(transparent 33px, rgba(141, 110, 99, 0.15) 34px);
-            background-size: 100% 34px; line-height: 34px; border: none; resize: none; width: 100%;
-        }
-
-        .ddb-card { background: white; border-radius: 24px; padding: 20px; box-shadow: 0 4px 15px rgba(141, 110, 99, 0.08); }
-        .stat-card { background: white; border-radius: 20px; padding: 15px; text-align: center; flex: 1; }
-        .active-tab { color: #8D6E63 !important; transform: scale(1.1); transition: all 0.2s; }
-        
-        /* 캘린더 스타일 */
-        .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; }
-        .calendar-day { aspect-ratio: 1/1; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 10px; border-radius: 8px; position: relative; }
-        .stamp-icon { width: 80%; height: 80%; object-fit: contain; position: absolute; opacity: 0.8; }
+        .bottom-nav { position: absolute; bottom: 0; width: 100%; height: 75px; background: white; display: flex; justify-content: space-around; align-items: center; border-top: 1px solid #eee; z-index: 100; }
+        .ddb-card { background: white; border-radius: 24px; padding: 20px; box-shadow: 0 4px 15px rgba(141, 110, 99, 0.06); }
+        .lined-paper { background-image: linear-gradient(transparent 33px, rgba(141, 110, 99, 0.1) 34px); background-size: 100% 34px; line-height: 34px; border: none; resize: none; width: 100%; }
+        .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+        .calendar-day { aspect-ratio: 1/1; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 10px; position: relative; background: #fff; }
+        .stamp-img { width: 80%; height: 80%; object-fit: contain; position: absolute; opacity: 0.8; }
+        .active-tab { color: #8D6E63 !important; }
     </style>
 </head>
 <body>
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useRef } = React;
+        const { useState, useEffect } = React;
 
         const firebaseConfig = {
             apiKey: "AIzaSyBhgHe856C8jJUsW_3gjJSOO3mlQXDee-c",
@@ -66,8 +39,7 @@
             projectId: "diri-penpal-diary",
             storageBucket: "diri-penpal-diary.firebasestorage.app",
             messagingSenderId: "587612499384",
-            appId: "1:587612499384:web:8c1f491372cb112050334d",
-            measurementId: "G-G6WCPQ14BD"
+            appId: "1:587612499384:web:8c1f491372cb112050334d"
         };
         
         if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
@@ -77,10 +49,9 @@
         const App = () => {
             const [user, setUser] = useState(null);
             const [activeTab, setActiveTab] = useState('today');
-            const [letters, setLetters] = useState([]);
-            const [trackers, setTrackers] = useState([]);
-            const [settings, setSettings] = useState({ userName: '나의 이름', characterName: '펜팔 친구', apiKey: '', persona: '' });
-            const [advice, setAdvice] = useState('오늘 하루도 행복하세요! ✨');
+            const [data, setData] = useState({ letters: [], trackers: [], fortunes: [] });
+            const [settings, setSettings] = useState({ userName: '나의 이름', characterName: '펜팔 친구', apiKey: '', persona: '', profileImg: '', replyMode: '바로' });
+            const [advice, setAdvice] = useState('행복한 하루 되세요! ✨');
 
             useEffect(() => {
                 auth.onAuthStateChanged(async (u) => {
@@ -89,42 +60,40 @@
                         const doc = await db.collection('users').doc(u.uid).get();
                         if (doc.exists) setSettings(doc.data().settings || {});
                         else setActiveTab('settings');
-                        fetchData(u.uid);
+                        loadData(u.uid);
                     } else setUser(null);
                 });
             }, []);
 
-            const fetchData = async (uid) => {
-                const lSnap = await db.collection('users').doc(uid).collection('letters').orderBy('date', 'desc').get();
-                const tSnap = await db.collection('users').doc(uid).collection('trackers').orderBy('date', 'desc').get();
-                setLetters(lSnap.docs.map(d => ({id: d.id, ...d.data()})));
-                setTrackers(tSnap.docs.map(d => ({id: d.id, ...d.data()})));
+            const loadData = async (uid) => {
+                const [l, t, f] = await Promise.all([
+                    db.collection('users').doc(uid).collection('letters').orderBy('date', 'desc').get(),
+                    db.collection('users').doc(uid).collection('trackers').orderBy('date', 'desc').get(),
+                    db.collection('users').doc(uid).collection('fortunes').orderBy('date', 'desc').get()
+                ]);
+                setData({
+                    letters: l.docs.map(d => ({id: d.id, ...d.data()})),
+                    trackers: t.docs.map(d => ({id: d.id, ...d.data()})),
+                    fortunes: f.docs.map(d => ({id: d.id, ...d.data()}))
+                });
             };
 
-            const callOpenAI = async (system, userMsg) => {
-                if (!settings.apiKey) return "API 키를 먼저 등록해주세요!";
-                try {
-                    const res = await fetch("https://api.openai.com/v1/chat/completions", {
-                        method: "POST",
-                        headers: { "Authorization": `Bearer ${settings.apiKey}`, "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                            model: "gpt-4o",
-                            messages: [{role: "system", content: system}, {role: "user", content: userMsg}]
-                        })
-                    });
-                    const data = await res.json();
-                    return data.choices[0].message.content;
-                } catch (e) { return "AI 통신 오류가 발생했습니다."; }
+            const callAI = async (sys, msg) => {
+                if(!settings.apiKey) return "API 키를 등록해주세요.";
+                const res = await fetch("https://api.openai.com/v1/chat/completions", {
+                    method: "POST",
+                    headers: { "Authorization": `Bearer ${settings.apiKey}`, "Content-Type": "application/json" },
+                    body: JSON.stringify({ model: "gpt-4o", messages: [{role:"system", content:sys}, {role:"user", content:msg}] })
+                });
+                const json = await res.json();
+                return json.choices[0].message.content;
             };
 
             if (!user) return (
                 <div className="app-shell items-center justify-center p-10 text-center">
-                    <h1 className="text-4xl font-bold text-[#8D6E63] mb-4">DIRI-Penpal</h1>
-                    <p className="text-gray-500 mb-10">나만의 AI 친구와 주고받는 비밀 편지</p>
-                    <button onClick={() => auth.signInWithPopup(new firebase.auth.GoogleAuthProvider())} 
-                        className="w-full bg-white border py-4 rounded-3xl flex items-center justify-center gap-3 shadow-md active:scale-95 transition">
-                        <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" width="20"/>
-                        구글 계정으로 시작하기
+                    <h1 className="text-3xl font-bold text-[#8D6E63] mb-4">DIRI-Penpal</h1>
+                    <button onClick={() => auth.signInWithPopup(new firebase.auth.GoogleAuthProvider())} className="w-full bg-white border py-4 rounded-3xl flex items-center justify-center gap-3 shadow-md">
+                        <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" width="20"/> 구글로 시작하기
                     </button>
                 </div>
             );
@@ -132,14 +101,13 @@
             return (
                 <div className="app-shell">
                     <div className="main-content">
-                        {activeTab === 'today' && <Dashboard letters={letters} settings={settings} advice={advice} setAdvice={setAdvice} callOpenAI={callOpenAI} trackers={trackers} />}
-                        {activeTab === 'write' && <LetterWrite user={user} settings={settings} fetchData={fetchData} callOpenAI={callOpenAI} />}
-                        {activeTab === 'tracker' && <TrackerWrite user={user} fetchData={fetchData} />}
-                        {activeTab === 'calendar' && <CalendarView letters={letters} />}
-                        {activeTab === 'fortune' && <FortuneView settings={settings} callOpenAI={callOpenAI} user={user} />}
+                        {activeTab === 'today' && <Dashboard user={user} data={data} settings={settings} advice={advice} setAdvice={setAdvice} callAI={callAI} loadData={loadData} />}
+                        {activeTab === 'tracker' && <TrackerView user={user} loadData={loadData} />}
+                        {activeTab === 'write' && <LetterView user={user} settings={settings} loadData={loadData} callAI={callAI} />}
+                        {activeTab === 'calendar' && <CalendarView data={data} />}
+                        {activeTab === 'fortune' && <FortuneView user={user} settings={settings} data={data} loadData={loadData} callAI={callAI} />}
                         {activeTab === 'settings' && <SettingsView user={user} settings={settings} setSettings={setSettings} onSave={()=>setActiveTab('today')} />}
                     </div>
-
                     <div className="bottom-nav">
                         <NavBtn icon="fa-house" label="오늘" active={activeTab==='today'} onClick={()=>setActiveTab('today')} />
                         <NavBtn icon="fa-clipboard-list" label="기록" active={activeTab==='tracker'} onClick={()=>setActiveTab('tracker')} />
@@ -154,182 +122,213 @@
 
         const NavBtn = ({ icon, label, active, onClick }) => (
             <button onClick={onClick} className={`flex flex-col items-center gap-1 ${active ? 'active-tab' : 'text-gray-300'}`}>
-                <i className={`fa-solid ${icon} text-xl`}></i>
+                <i className={`fa-solid ${icon} text-lg`}></i>
                 <span className="text-[10px] font-bold">{label}</span>
             </button>
         );
 
-        const Dashboard = ({ letters, settings, advice, setAdvice, callOpenAI, trackers }) => {
+        const Dashboard = ({ data, settings, advice, setAdvice, callAI }) => {
+            const todayT = data.trackers.find(t => new Date(t.date).toDateString() === new Date().toDateString());
             const getAdvice = async () => {
                 setAdvice("생각 중...");
-                const res = await callOpenAI(`당신은 ${settings.characterName}입니다. ${settings.persona}. 짧고 따뜻한 한마디 조언을 해주세요.`, "조언 한마디 해줘");
+                const res = await callAI(`당신은 ${settings.characterName}입니다. ${settings.persona}. 짧고 따뜻한 조언 한마디 해주세요.`, "조언 해줘");
                 setAdvice(res);
             };
             return (
-                <div className="p-6 space-y-6">
-                    <div className="flex justify-between items-center text-gray-400 text-xs font-bold">
-                        <span>오늘의 인사</span>
-                        <span>{new Date().toLocaleDateString()}</span>
+                <div className="p-6 space-y-5 animate-in fade-in duration-500">
+                    <div className="flex justify-between items-center text-gray-400 text-[10px] font-bold">
+                        <span>{new Date().toLocaleDateString('ko-KR', {month:'long', day:'numeric', weekday:'short'})}</span>
                     </div>
+                    {/* 캐릭터 인사 */}
                     <div className="ddb-card flex gap-4 items-center">
-                        <div className="w-14 h-14 bg-[#8D6E6322] rounded-full flex items-center justify-center border-2 border-[#8D6E63] text-[#8D6E63]"><i className="fa-solid fa-user"></i></div>
+                        <img src={settings.profileImg || 'https://via.placeholder.com/100'} className="w-14 h-14 rounded-full border-2 border-[#8D6E63] object-cover" />
                         <div>
                             <h4 className="font-bold text-[#8D6E63]">{settings.characterName}</h4>
-                            <p className="text-sm mt-1 truncate w-full">{letters[0]?.reply || "기다리고 있었어!"}</p>
+                            <p className="text-sm mt-1">{data.letters[0]?.reply || "오늘 하루는 어땠어?"}</p>
                         </div>
                     </div>
-                    <div className="p-5 bg-[#EFEBE9] rounded-[24px] space-y-2 border border-[#8D6E6322]">
-                        <h5 className="text-[#8D6E63] font-bold text-xs"><i className="fa-solid fa-lightbulb"></i> 오늘의 조언</h5>
+                    {/* 오늘의 조언 */}
+                    <div className="p-5 bg-[#EFEBE9] rounded-[24px] border border-[#8D6E6311]">
+                        <h5 className="text-[#8D6E63] font-bold text-xs mb-2"><i className="fa-solid fa-lightbulb"></i> 오늘의 조언</h5>
                         <p className="text-sm leading-relaxed">{advice}</p>
-                        <button onClick={getAdvice} className="text-[10px] font-bold bg-[#8D6E63] text-white px-3 py-1 rounded-full mt-2">새로고침</button>
+                        <button onClick={getAdvice} className="text-[10px] text-white bg-[#8D6E63] px-3 py-1 rounded-full mt-3">조언 받기</button>
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
-                        <div className="stat-card">
-                            <span className="text-[10px] text-gray-400 font-bold">총 기록</span>
-                            <p className="text-2xl font-bold text-[#8D6E63] mt-1">{letters.length + trackers.length}</p>
-                        </div>
-                        <div className="stat-card bg-[#8D6E63]">
-                            <span className="text-[10px] text-white opacity-70 font-bold">연속 기록</span>
-                            <p className="text-2xl font-bold text-white mt-1">1일</p>
-                        </div>
+                    {/* 오늘의 운세 */}
+                    <div className="ddb-card space-y-2">
+                        <h5 className="text-purple-500 font-bold text-xs"><i className="fa-solid fa-sparkles"></i> 오늘의 운세</h5>
+                        <p className="text-sm line-clamp-2">{data.fortunes[0]?.content || "운세 탭에서 확인해보세요."}</p>
+                    </div>
+                    {/* 통계 */}
+                    <div className="flex gap-3">
+                        <StatCard label="총 기록" value={data.letters.length + data.trackers.length} />
+                        <StatCard label="연속 기록" value="1일" highlight />
+                        <StatCard label="이번 달" value={data.letters.length} />
+                    </div>
+                    {/* 오늘의 기록 */}
+                    <div className="ddb-card">
+                        <h5 className="font-bold text-sm mb-4"><i className="fa-solid fa-chart-simple"></i> 오늘의 기록</h5>
+                        {todayT ? (
+                            <div className="grid grid-cols-2 gap-y-3 text-sm">
+                                <span>🌙 수면: {todayT.sleep}h</span>
+                                <span>😊 기분: {todayT.mood}</span>
+                                <span>🤒 컨디션: {todayT.condition}</span>
+                                <span>🏃 운동: {todayT.exercise}h</span>
+                                <span>☀️ 날씨: {todayT.weather}</span>
+                            </div>
+                        ) : <p className="text-center text-gray-400 text-xs py-4">기록을 남겨보세요.</p>}
                     </div>
                 </div>
             );
         };
 
-        const LetterWrite = ({ user, settings, fetchData, callOpenAI }) => {
+        const StatCard = ({ label, value, highlight }) => (
+            <div className={`stat-card flex-1 p-4 rounded-2xl text-center shadow-sm ${highlight ? 'bg-[#8D6E63] text-white' : 'bg-white text-[#8D6E63]'}`}>
+                <span className="text-[9px] font-bold uppercase block opacity-60">{label}</span>
+                <span className="text-lg font-bold mt-1 block">{value}</span>
+            </div>
+        );
+
+        const TrackerView = ({ user, loadData }) => {
+            const [form, setForm] = useState({ sleep: 7, mood: '보통', condition: '보통', exercise: 0, weather: '맑음' });
+            const save = async () => {
+                await db.collection('users').doc(user.uid).collection('trackers').add({...form, date: new Date().toISOString()});
+                alert("기록 완료!"); loadData(user.uid);
+            };
+            return (
+                <div className="p-6 space-y-6">
+                    <h2 className="text-xl font-bold text-center text-[#8D6E63] mt-4">오늘의 기록</h2>
+                    <div className="ddb-card space-y-6">
+                        <InputGroup label="🌙 수면 시간" value={form.sleep} min="0" max="12" step="0.5" unit="h" onChange={v=>setForm({...form, sleep:v})} />
+                        <InputGroup label="🏃 운동 시간" value={form.exercise} min="0" max="5" step="0.5" unit="h" onChange={v=>setForm({...form, exercise:v})} />
+                        <SelectRow label="기분" value={form.mood} options={["행복", "좋음", "보통", "우울", "화남"]} onChange={v=>setForm({...form, mood:v})} />
+                        <SelectRow label="컨디션" value={form.condition} options={["상쾌", "보통", "피곤", "아픔"]} onChange={v=>setForm({...form, condition:v})} />
+                        <SelectRow label="날씨" value={form.weather} options={["맑음", "흐림", "비", "눈"]} onChange={v=>setForm({...form, weather:v})} />
+                    </div>
+                    <button onClick={save} className="w-full bg-[#8D6E63] text-white py-4 rounded-2xl font-bold shadow-lg">저장하기</button>
+                </div>
+            );
+        };
+
+        const InputGroup = ({ label, value, min, max, step, unit, onChange }) => (
+            <div className="space-y-3">
+                <div className="flex justify-between text-sm font-bold"><span>{label}</span><span className="text-[#8D6E63]">{value}{unit}</span></div>
+                <input type="range" min={min} max={max} step={step} className="w-full accent-[#8D6E63]" value={value} onChange={e=>onChange(e.target.value)} />
+            </div>
+        );
+
+        const SelectRow = ({ label, value, options, onChange }) => (
+            <div className="flex justify-between items-center border-b pb-2">
+                <span className="text-sm font-bold">{label}</span>
+                <select className="bg-transparent font-bold text-[#8D6E63] outline-none" value={value} onChange={e=>onChange(e.target.value)}>
+                    {options.map(o => <option key={o}>{o}</option>)}
+                </select>
+            </div>
+        );
+
+        const LetterView = ({ user, settings, loadData, callAI }) => {
             const [text, setText] = useState('');
             const [loading, setLoading] = useState(false);
             const send = async () => {
                 if(!text.trim()) return;
                 setLoading(true);
-                const reply = await callOpenAI(`당신은 ${settings.characterName}입니다. 페르소나: ${settings.persona}. ${settings.userName}에게 답장하세요.`, text);
+                const reply = await callAI(`당신은 ${settings.characterName}입니다. ${settings.persona}. ${settings.userName}에게 답장하세요. 아주 길고 정성스럽게.`, text);
                 await db.collection('users').doc(user.uid).collection('letters').add({
-                    content: text, reply, date: new Date().toISOString(), stamp: Math.floor(Math.random() * 118) + 1
+                    content: text, reply, date: new Date().toISOString(), stamp: Math.floor(Math.random()*118)+1
                 });
-                setText('');
-                fetchData(user.uid);
-                alert("답장이 도착했습니다!");
-                setLoading(false);
+                setText(''); loadData(user.uid); setLoading(false);
             };
             return (
                 <div className="p-6 h-full flex flex-col">
-                    <h2 className="text-center font-bold text-[#8D6E63] text-lg mb-4 underline decoration-[#8D6E6344]">To. {settings.characterName}</h2>
-                    <div className="flex-1 bg-white rounded-[32px] p-6 shadow-sm border border-[#8D6E6311]">
-                        <textarea className="letter-paper h-full focus:outline-none text-lg" value={text} onChange={e=>setText(e.target.value)} placeholder="당신의 일상을 들려주세요..." />
+                    <h2 className="text-center font-bold text-[#8D6E63] text-lg mb-4">To. {settings.characterName}</h2>
+                    <div className="flex-1 bg-white rounded-3xl p-6 shadow-sm border border-[#8D6E6311]">
+                        <textarea className="lined-paper h-full focus:outline-none text-lg" value={text} onChange={e=>setText(e.target.value)} placeholder="마음을 전해보세요..." />
                     </div>
-                    <button onClick={send} disabled={loading} className="w-full bg-[#8D6E63] text-white py-5 rounded-[24px] font-bold shadow-lg mt-5 active:scale-95 transition">
+                    <button onClick={send} disabled={loading} className="w-full bg-[#8D6E63] text-white py-4 rounded-2xl font-bold shadow-lg mt-5 active:scale-95 transition">
                         {loading ? <i className="fa-solid fa-spinner fa-spin"></i> : "편지 보내기"}
                     </button>
                 </div>
             );
         };
 
-        const TrackerWrite = ({ user, fetchData }) => {
-            const [form, setForm] = useState({ sleep: 7, mood: '보통', condition: '보통' });
-            const save = async () => {
-                await db.collection('users').doc(user.uid).collection('trackers').add({...form, date: new Date().toISOString()});
-                alert("기록되었습니다!");
-                fetchData(user.uid);
-            };
-            return (
-                <div className="p-6 space-y-6">
-                    <h2 className="text-xl font-bold text-[#8D6E63] text-center">오늘의 기록</h2>
-                    <div className="ddb-card space-y-8">
-                        <div>
-                            <div className="flex justify-between font-bold text-sm mb-3"><span>🌙 수면 시간</span><span className="text-[#8D6E63]">{form.sleep}h</span></div>
-                            <input type="range" min="0" max="12" step="0.5" className="w-full accent-[#8D6E63]" value={form.sleep} onChange={e=>setForm({...form, sleep: e.target.value})} />
-                        </div>
-                        <div className="flex justify-between items-center py-2 border-b">
-                            <span className="font-bold text-sm">기분</span>
-                            <select className="bg-transparent font-bold text-[#8D6E63] outline-none" value={form.mood} onChange={e=>setForm({...form, mood: e.target.value})}>
-                                <option>행복</option><option>좋음</option><option>보통</option><option>우울</option><option>화남</option>
-                            </select>
-                        </div>
-                        <div className="flex justify-between items-center py-2 border-b">
-                            <span className="font-bold text-sm">컨디션</span>
-                            <select className="bg-transparent font-bold text-[#8D6E63] outline-none" value={form.condition} onChange={e=>setForm({...form, condition: e.target.value})}>
-                                <option>상쾌</option><option>보통</option><option>피곤</option><option>아픔</option>
-                            </select>
-                        </div>
-                    </div>
-                    <button onClick={save} className="w-full bg-[#8D6E63] text-white py-5 rounded-[24px] font-bold shadow-lg mt-5 active:scale-95 transition">기록 저장하기</button>
-                </div>
-            );
-        };
-
-        const CalendarView = ({ letters }) => {
+        const CalendarView = ({ data }) => {
             const days = Array.from({length: 31}, (_, i) => i + 1);
             return (
-                <div className="p-6 space-y-6 text-center">
-                    <h2 className="text-xl font-bold text-[#8D6E63]">기록 캘린더</h2>
-                    <div className="ddb-card">
-                        <div className="calendar-grid">
-                            {['일','월','화','수','목','금','토'].map(d => <div key={d} className="text-[10px] font-bold text-gray-300">{d}</div>)}
-                            {days.map(day => {
-                                const letter = letters.find(l => new Date(l.date).getDate() === day);
-                                return (
-                                    <div key={day} className="calendar-day bg-[#F7F4EB] text-[#5D4037]">
-                                        {day}
-                                        {letter && <img className="stamp-icon" src={`https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${letter.stamp || 1}.png`} />}
-                                    </div>
-                                );
-                            })}
-                        </div>
+                <div className="p-6 space-y-6">
+                    <h2 className="text-xl font-bold text-[#8D6E63] text-center">우표 캘린더</h2>
+                    <div className="ddb-card calendar-grid">
+                        {['일','월','화','수','목','금','토'].map(d=><div key={d} className="text-[10px] text-center text-gray-300 font-bold">{d}</div>)}
+                        {days.map(d => {
+                            const l = data.letters.find(l => new Date(l.date).getDate() === d);
+                            return (
+                                <div key={d} className="calendar-day text-gray-300">
+                                    {d}
+                                    {l && <img src={`https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${l.stamp}.png`} className="stamp-img" />}
+                                </div>
+                            );
+                        })}
                     </div>
                 </div>
             );
         };
 
-        const FortuneView = ({ settings, callOpenAI, user }) => {
-            const [fortune, setFortune] = useState(null);
+        const FortuneView = ({ user, settings, data, loadData, callAI }) => {
             const [loading, setLoading] = useState(false);
-            const getFortune = async () => {
+            const getF = async () => {
                 setLoading(true);
-                const res = await callOpenAI(`당신은 ${settings.characterName}입니다. ${settings.userName}의 오늘 운세를 정성스럽고 길게 봐주세요.`, "오늘의 운세 알려줘");
-                setFortune(res);
-                setLoading(false);
+                const res = await callAI(`당신은 ${settings.characterName}입니다. ${settings.userName}의 오늘 운세를 정성스럽게 봐주세요.`, "운세 알려줘");
+                await db.collection('users').doc(user.uid).collection('fortunes').add({content: res, date: new Date().toISOString()});
+                loadData(user.uid); setLoading(false);
             };
             return (
                 <div className="p-6 space-y-6 text-center">
-                    <h2 className="text-2xl font-bold text-[#8D6E63]">🔮 오늘의 운세</h2>
-                    {fortune ? (
-                        <div className="ddb-card text-left leading-relaxed text-sm animate-in fade-in duration-500">
-                            {fortune}
-                            <button onClick={()=>setFortune(null)} className="w-full text-[#8D6E63] font-bold mt-5 text-xs">다시 뽑기</button>
+                    <h2 className="text-2xl font-bold text-[#8D6E63] mt-10">🔮 오늘의 운세</h2>
+                    {data.fortunes[0] ? (
+                        <div className="ddb-card text-left text-sm leading-relaxed animate-in fade-in">
+                            {data.fortunes[0].content}
+                            <button onClick={getF} className="w-full text-[#8D6E63] font-bold mt-6 text-xs border-t pt-4">다시 뽑기</button>
                         </div>
-                    ) : (
-                        <button onClick={getFortune} className="bg-[#8D6E63] text-white p-10 rounded-full shadow-2xl mt-20 animate-bounce">
-                            {loading ? <i className="fa-solid fa-spinner fa-spin text-3xl"></i> : "운세 뽑기"}
-                        </button>
-                    )}
+                    ) : <button onClick={getF} className="bg-[#8D6E63] text-white p-12 rounded-full shadow-2xl mt-20">{loading ? "..." : "운세 뽑기"}</button>}
                 </div>
             );
         };
 
         const SettingsView = ({ user, settings, setSettings, onSave }) => {
+            const handleImg = (e) => {
+                const file = e.target.files[0];
+                const reader = new FileReader();
+                reader.onloadend = () => setSettings({...settings, profileImg: reader.result});
+                reader.readAsDataURL(file);
+            };
             const save = async () => {
                 await db.collection('users').doc(user.uid).set({ settings }, { merge: true });
-                alert("설정이 동기화되었습니다!");
-                onSave();
+                alert("설정 저장됨!"); onSave();
             };
             return (
                 <div className="p-6 space-y-5">
-                    <h2 className="text-xl font-bold text-center text-[#8D6E63]">DIRI-Penpal 설정</h2>
+                    <h2 className="text-xl font-bold text-center text-[#8D6E63]">설정</h2>
                     <div className="ddb-card space-y-5">
+                        <div className="flex flex-col items-center gap-3">
+                            <img src={settings.profileImg || 'https://via.placeholder.com/100'} className="w-20 h-20 rounded-full border-2 border-[#8D6E63] object-cover" />
+                            <input type="file" className="text-xs" onChange={handleImg} />
+                        </div>
                         <input className="w-full p-3 border-b focus:outline-none" placeholder="이름" value={settings.userName} onChange={e=>setSettings({...settings, userName:e.target.value})} />
                         <input className="w-full p-3 border-b focus:outline-none" placeholder="캐릭터 이름" value={settings.characterName} onChange={e=>setSettings({...settings, characterName:e.target.value})} />
                         <input className="w-full p-3 border-b focus:outline-none" type="password" placeholder="OpenAI API Key" value={settings.apiKey} onChange={e=>setSettings({...settings, apiKey:e.target.value})} />
-                        <textarea className="w-full p-4 border rounded-2xl h-40 text-sm" placeholder="AI 페르소나 설정" value={settings.persona} onChange={e=>setSettings({...settings, persona:e.target.value})} />
-                        <button onClick={save} className="w-full bg-[#8D6E63] text-white py-4 rounded-2xl font-bold shadow-md">저장하고 시작하기</button>
+                        <div className="flex justify-between items-center text-sm">
+                            <span className="font-bold text-gray-400">답장 시간</span>
+                            <select value={settings.replyMode} onChange={e=>setSettings({...settings, replyMode:e.target.value})} className="font-bold text-[#8D6E63]">
+                                <option>바로</option><option>10분 후</option><option>30분 후</option><option>랜덤</option>
+                            </select>
+                        </div>
+                        <textarea className="w-full p-4 border rounded-2xl h-32 text-sm" placeholder="AI 페르소나 설정" value={settings.persona} onChange={e=>setSettings({...settings, persona:e.target.value})} />
+                        <button onClick={save} className="w-full bg-[#8D6E63] text-white py-4 rounded-2xl font-bold">저장하고 시작하기</button>
                     </div>
-                    <button onClick={()=>auth.signOut()} className="w-full text-red-300 text-xs mt-10"><i className="fa-solid fa-power-off"></i> 로그아웃</button>
+                    <button onClick={()=>auth.signOut()} className="w-full text-red-300 text-xs mt-6">로그아웃</button>
                 </div>
             );
         };
 
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
+        ReactDOM.createRoot(document.getElementById('root')).render(<App />);
     </script>
 </body>
 </html>
