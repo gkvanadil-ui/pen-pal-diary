@@ -12,14 +12,21 @@
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Gowun+Dodum&display=swap');
+        body { font-family: 'Gowun Dodum', sans-serif; background-color: #F7F4EB; }
+        .lined-paper { background-image: linear-gradient(transparent 33px, rgba(141, 110, 99, 0.2) 34px); background-size: 100% 34px; line-height: 34px; }
+        .tab-bar { position: fixed; bottom: 0; width: 100%; max-width: 480px; background: white; display: flex; justify-content: space-around; padding: 12px 0; border-top: 1px solid #eee; z-index: 50; }
+        .stat-card { background: white; border-radius: 20px; padding: 15px; box-shadow: 0 4px 8px rgba(0,0,0,0.05); text-align: center; flex: 1; }
+    </style>
 </head>
-<body class="bg-[#F7F4EB] flex justify-center">
-    <div id="root" class="w-full max-w-[480px] min-h-screen relative"></div>
+<body class="flex justify-center">
+    <div id="root" class="w-full max-w-[480px] min-h-screen bg-[#F7F4EB] shadow-2xl relative pb-24"></div>
 
     <script type="text/babel">
         const { useState, useEffect } = React;
 
-        // ✅ 토마토님의 Firebase 설정값 (정확히 입력됨)
+        // ✅ 토마토님이 주신 Firebase 설정
         const firebaseConfig = {
             apiKey: "AIzaSyBhgHe856C8jJUsW_3gjJSOO3mlQXDee-c",
             authDomain: "diri-penpal-diary.firebaseapp.com",
@@ -30,37 +37,136 @@
             measurementId: "G-G6WCPQ14BD"
         };
         
-        firebase.initializeApp(firebaseConfig);
+        if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
         const auth = firebase.auth();
+        const db = firebase.firestore();
 
         const App = () => {
             const [user, setUser] = useState(null);
+            const [activeTab, setActiveTab] = useState('today');
+            const [letters, setLetters] = useState([]);
+            const [settings, setSettings] = useState({ userName: '', characterName: '', apiKey: '', persona: '' });
+            const [isSending, setIsSending] = useState(false);
 
             useEffect(() => {
-                auth.onAuthStateChanged((u) => setUser(u));
+                auth.onAuthStateChanged(async (u) => {
+                    if (u) {
+                        setUser(u);
+                        const doc = await db.collection('users').doc(u.uid).get();
+                        if (doc.exists) {
+                            setSettings(doc.data().settings || {});
+                            loadLetters(u.uid);
+                        } else { setActiveTab('settings'); }
+                    } else { setUser(null); }
+                });
             }, []);
+
+            const loadLetters = async (uid) => {
+                const snapshot = await db.collection('users').doc(uid).collection('letters').orderBy('date', 'desc').get();
+                setLetters(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+            };
 
             const googleLogin = () => {
                 const provider = new firebase.auth.GoogleAuthProvider();
-                // 팝업 창이 닫히는 이유를 잡기 위해 alert 추가
-                auth.signInWithPopup(provider)
-                    .then(() => alert("로그인 성공!"))
-                    .catch((error) => {
-                        // 여기서 범인이 나옵니다!
-                        alert("🚨 로그인 에러 발생!\n코드: " + error.code + "\n메시지: " + error.message);
-                        console.error(error);
+                auth.signInWithPopup(provider).catch(e => alert("로그인 오류: " + e.message));
+            };
+
+            const saveSettings = async () => {
+                if (!user) return;
+                try {
+                    await db.collection('users').doc(user.uid).set({ settings }, { merge: true });
+                    alert("구글 계정에 설정이 저장되었습니다!");
+                    setActiveTab('today'); 
+                } catch (e) { alert("저장 실패: " + e.message); }
+            };
+
+            const sendLetter = async (text) => {
+                if (!settings.apiKey) return alert("설정에서 OpenAI API Key를 등록해주세요!");
+                setIsSending(true);
+                try {
+                    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+                        method: "POST",
+                        headers: { "Authorization": `Bearer ${settings.apiKey}`, "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            model: "gpt-4o",
+                            messages: [
+                                { role: "system", content: `당신은 ${settings.characterName}입니다. 페르소나: ${settings.persona}. ${settings.userName}에게 답장하세요.` },
+                                { role: "user", content: text }
+                            ]
+                        })
                     });
+                    const data = await response.json();
+                    const reply = data.choices[0].message.content;
+                    const newLetter = { date: new Date().toISOString(), content: text, reply: reply };
+                    await db.collection('users').doc(user.uid).collection('letters').add(newLetter);
+                    loadLetters(user.uid);
+                    setActiveTab('today');
+                } catch (e) { alert("AI 답장 생성 실패!"); }
+                setIsSending(false);
             };
 
             if (!user) return (
-                <div className="flex flex-col items-center justify-center h-screen">
-                    <button onClick={googleLogin} className="bg-white border p-4 rounded-2xl shadow-md">
-                        구글 로그인 시도하기
+                <div className="flex flex-col items-center justify-center h-screen p-10 text-center">
+                    <h1 className="text-3xl font-bold text-[#8D6E63] mb-8">DIRI-Penpal Diary</h1>
+                    <button onClick={googleLogin} className="bg-white border p-4 rounded-2xl flex items-center gap-3 shadow-sm active:scale-95 transition">
+                        <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" width="20"/>
+                        구글 계정으로 시작하기
                     </button>
                 </div>
             );
 
-            return <div className="p-10 text-center">로그인 완료: {user.email}</div>;
+            return (
+                <div className="flex flex-col min-h-screen">
+                    {/* 1. 오늘 탭 */}
+                    {activeTab === 'today' && <div className="p-6 space-y-6">
+                        <div className="bg-white p-6 rounded-3xl shadow-sm border border-[#8D6E631A]">
+                            <h3 className="font-bold text-[#8D6E63]">{settings.characterName || '친구'}</h3>
+                            <p className="mt-2 text-gray-600 leading-relaxed whitespace-pre-wrap italic">
+                                "{letters[0]?.reply || "반가워! 오늘 하루는 어땠어? 네 편지를 기다릴게."}"
+                            </p>
+                        </div>
+                        <div className="stat-card">
+                            <span className="text-[10px] text-gray-400">보낸 편지</span>
+                            <p className="text-xl font-bold text-[#8D6E63]">{letters.length}</p>
+                        </div>
+                    </div>}
+
+                    {/* 2. 편지 쓰기 탭 */}
+                    {activeTab === 'write' && <WriteView onSend={sendLetter} isSending={isSending} settings={settings} />}
+
+                    {/* 3. 설정 탭 */}
+                    {activeTab === 'settings' && <div className="p-6 space-y-4">
+                        <h2 className="text-xl font-bold text-center text-[#8D6E63]">DIRI-Penpal 설정</h2>
+                        <div className="bg-white p-6 rounded-3xl space-y-5 shadow-sm">
+                            <input className="w-full p-3 border-b" placeholder="나의 이름" value={settings.userName} onChange={e=>setSettings({...settings, userName:e.target.value})} />
+                            <input className="w-full p-3 border-b" placeholder="캐릭터 이름" value={settings.characterName} onChange={e=>setSettings({...settings, characterName:e.target.value})} />
+                            <input className="w-full p-3 border-b" type="password" placeholder="OpenAI API Key" value={settings.apiKey} onChange={e=>setSettings({...settings, apiKey:e.target.value})} />
+                            <textarea className="w-full p-3 border rounded-xl h-32" placeholder="AI 페르소나" value={settings.persona} onChange={e=>setSettings({...settings, persona:e.target.value})} />
+                            <button onClick={saveSettings} className="w-full bg-[#8D6E63] text-white py-4 rounded-xl font-bold">저장하고 시작하기</button>
+                        </div>
+                    </div>}
+
+                    <div className="tab-bar">
+                        <button onClick={()=>setActiveTab('today')} className={activeTab==='today'?'text-[#8D6E63]':'text-gray-300'}><i className="fa-solid fa-house text-xl"></i></button>
+                        <button onClick={()=>setActiveTab('write')} className={activeTab==='write'?'text-[#8D6E63]':'text-gray-300'}><i className="fa-solid fa-pen-fancy text-xl"></i></button>
+                        <button onClick={()=>setActiveTab('settings')} className={activeTab==='settings'?'text-[#8D6E63]':'text-gray-300'}><i className="fa-solid fa-gear text-xl"></i></button>
+                        <button onClick={()=>auth.signOut()} className="text-red-300 active:scale-90"><i className="fa-solid fa-power-off text-xl"></i></button>
+                    </div>
+                </div>
+            );
+        };
+
+        const WriteView = ({ onSend, isSending, settings }) => {
+            const [text, setText] = useState('');
+            return (
+                <div className="p-6 flex-1 flex flex-col">
+                    <h2 className="text-center font-bold mb-4">To. {settings.characterName}</h2>
+                    <textarea className="lined-paper flex-1 w-full bg-transparent focus:outline-none text-lg p-2 min-h-[400px]" value={text} onChange={e=>setText(e.target.value)} placeholder="마음을 담아 적어보세요..." />
+                    <button onClick={()=>onSend(text)} disabled={isSending} className="bg-[#8D6E63] text-white py-4 rounded-2xl font-bold mt-4 shadow-lg active:scale-95 transition">
+                        {isSending ? <i className="fa-solid fa-spinner fa-spin"></i> : "편지 보내기"}
+                    </button>
+                </div>
+            );
         };
 
         ReactDOM.createRoot(document.getElementById('root')).render(<App />);
