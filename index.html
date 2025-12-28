@@ -303,7 +303,7 @@
                         </label>
                     </div>
                     <h2 className="text-center font-bold text-[#8D6E63] mb-4 text-base font-serif font-bold">To. {settings.characterName}</h2>
-                    <div className="flex-1 bg-white rounded-[32px] p-6 shadow-sm border border-[#8D6E6311]"><textarea className="lined-paper focus:outline-none" value={text} onChange={e=>setText(e.target.value)} placeholder="마음을 전해봐.." /></div>
+                    <div className="flex-1 bg-white rounded-[32px] p-6 shadow-sm border border-[#8D6E6311]"><textarea className="lined-paper focus:outline-none" value={text} onChange={e=>setText(e.target.value)} placeholder="마음을 전해봐!" /></div>
                     <button onClick={send} disabled={loading} className="w-full bg-[#8D6E63] text-white py-4 rounded-[24px] font-bold shadow-lg mt-5 text-sm active:scale-95 transition">{loading ? "전송 중..." : "편지 보내기"}</button>
                 </div>
             );
