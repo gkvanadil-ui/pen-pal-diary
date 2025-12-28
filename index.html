@@ -126,7 +126,10 @@
                 if(!key) return "API 키를 등록해주세요.";
                 try {
                     let content = [{ type: "text", text: msg + instruction }];
-                    if (base64Img) content.push({ type: "image_url", image_url: { url: base64Img } });
+                    if (base64Img) {
+                        const finalImgUrl = base64Img.includes("base64,") ? base64Img : `data:image/jpeg;base64,${base64Img}`;
+                        content.push({ type: "image_url", image_url: { url: finalImgUrl } });
+                    }
 
                     const res = await fetch("https://api.openai.com/v1/chat/completions", {
                         method: "POST",
@@ -159,8 +162,8 @@
 
                         const lastAdvice = data.advices[0];
                         if (!lastAdvice || new Date(lastAdvice.date).toDateString() !== todayStr) {
-                            // ✅ 날씨 정보를 제외하고 캐릭터 어투로 정확히 3문장 조언 생성
-                            const aRes = await callAI(`네 캐릭터 말투로 사용자에게 오늘 하루 힘이 될 만한 다정한 조언을 "정확히 3문장"으로만 해줘.`);
+                            // ✅ 날씨 정보를 제외하고 캐릭터 말투로 정확히 3문장만 조언 생성
+                            const aRes = await callAI(`네 성격(페르소나)에 맞춰 사용자에게 힘이 되는 다정한 조언을 "정확히 3문장"으로만 작성해줘. [지시: 날씨 언급은 절대 금지]`);
                             db.collection('users').doc(user.uid).collection('daily_cache').add({ type: 'advice', content: aRes, date: new Date().toISOString() });
                         }
                         const lastFortune = data.fortunes[0];
@@ -206,18 +209,18 @@
                         <div className="flex-1 space-y-2">
                             <h4 className="font-bold text-[#8D6E63] text-sm">{settings.characterName}</h4>
                             <div className="text-sm bg-[#fdfaf3] p-3 rounded-xl italic leading-relaxed whitespace-pre-wrap font-medium">
-                                "{truncateStr(lastL && isDelivered ? lastL.reply : "편지 기다릴게!", 50)}"
+                                {truncateStr(lastL && isDelivered ? lastL.reply : "편지 기다릴게!", 50)}
                             </div>
                             <p className="text-[10px] opacity-40">지금 날씨: {weather.desc} ({weather.temp}°C)</p>
                         </div>
                     </div>
                     <div className="ddb-card bg-gray-50 p-4 shadow-sm text-center">
                         <h5 className="text-[11px] font-bold text-[#8D6E63] uppercase mb-2 font-serif text-center">Yesterday Briefing 📝</h5>
-                        <p className="text-sm text-gray-600 leading-relaxed font-medium italic">"{cleanStr(briefing)}"</p>
+                        <p className="text-sm text-gray-600 leading-relaxed font-medium italic">{cleanStr(briefing)}</p>
                     </div>
                     <div className="p-6 bg-[#EFEBE9] rounded-[28px] space-y-3 shadow-sm">
                         <h5 className="text-[#8D6E63] font-bold text-xs"><i className="fa-solid fa-lightbulb"></i> {settings.characterName}의 조언</h5>
-                        <p className="text-sm italic font-medium whitespace-pre-wrap leading-relaxed">"{cleanStr(data.advices[0]?.content || "행복한 하루 보내!")}"</p>
+                        <p className="text-sm italic font-medium whitespace-pre-wrap leading-relaxed">{cleanStr(data.advices[0]?.content || "행복한 하루 보내!")}</p>
                     </div>
                     <div className="ddb-card border border-purple-50">
                         <h5 className="text-purple-500 font-bold text-xs mb-2 uppercase tracking-widest font-serif">Today's Fortune ✨</h5>
@@ -298,11 +301,17 @@
                     const deliverAt = new Date(new Date().getTime() + delay * 60000).toISOString();
                     
                     const docRef = await db.collection('users').doc(user.uid).collection('letters').add({ content: text, reply: "", date: new Date().toISOString(), deliverAt, stampImg, attachedImg: image });
-                    alert("전송됨!"); setText(''); setImage(null);
-                    const aiReply = await callAI(text, image ? "\n[사진을 분석해서 캐릭터답게 정성스러운 장문 답장을 보내줘]" : "\n[정성스럽고 다정한 장문 답장을 보내줘]", image);
+                    alert("전송됨!"); 
+                    const currentText = text;
+                    const currentImg = image;
+                    setText(''); setImage(null);
+                    const aiReply = await callAI(currentText, currentImg ? "\n[사진을 분석해서 캐릭터답게 정성스러운 장문 답장을 보내줘]" : "\n[정성스럽고 다정한 장문 답장을 보내줘]", currentImg);
                     await docRef.update({ reply: aiReply });
-                } catch(e) {}
-                setLoading(false);
+                } catch(e) {
+                    console.error(e);
+                } finally {
+                    setLoading(false);
+                }
             };
 
             return (
@@ -327,12 +336,11 @@
             const [sDate, setSDate] = useState(new Date());
             const daysInMonth = new Date(vDate.getFullYear(), vDate.getMonth() + 1, 0).getDate();
             const firstDay = new Date(vDate.getFullYear(), vDate.getMonth(), 1).getDay();
-            const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
             const filtered = data.letters.filter(l => new Date(l.date).toDateString() === sDate.toDateString());
 
             return (
                 <div className="p-6 space-y-6">
-                    <div className="flex justify-between items-center px-4"><button onClick={()=>setVDate(new Date(vDate.getFullYear(), vDate.getMonth()-1, 1))} className="opacity-30"><i className="fa-solid fa-chevron-left text-xs"></i></button><h2 className="text-md font-bold text-[#8D6E63] font-serif uppercase tracking-widest">{monthNames[vDate.getMonth()]} {vDate.getFullYear()}</h2><button onClick={()=>setVDate(new Date(vDate.getFullYear(), vDate.getMonth()+1, 1))} className="opacity-30"><i className="fa-solid fa-chevron-right text-xs"></i></button></div>
+                    <div className="flex justify-between items-center px-4"><button onClick={()=>setVDate(new Date(vDate.getFullYear(), vDate.getMonth()-1, 1))} className="opacity-30"><i className="fa-solid fa-chevron-left text-xs"></i></button><h2 className="text-md font-bold text-[#8D6E63] font-serif uppercase tracking-widest">{vDate.getFullYear()} / {vDate.getMonth()+1}</h2><button onClick={()=>setVDate(new Date(vDate.getFullYear(), vDate.getMonth()+1, 1))} className="opacity-30"><i className="fa-solid fa-chevron-right text-xs"></i></button></div>
                     <div className="ddb-card p-5 shadow-md"><div className="calendar-grid">
                         {['S','M','T','W','T','F','S'].map(d=><div key={d} className="text-[10px] text-[#D7CCC8] font-bold text-center mb-4">{d}</div>)}
                         {Array(firstDay).fill(0).map((_, i) => <div key={`e-${i}`} />)}
@@ -345,7 +353,7 @@
                     <div className="space-y-2 pb-4">
                         {filtered.map(item => (
                             <div key={item.id} onClick={() => onLetterClick(item)} className="bg-white p-3 rounded-2xl shadow-sm border-l-4 border-[#8D6E63] flex justify-between items-center animate-in slide-in-from-bottom-2 active:scale-95 transition">
-                                <div className="flex-1 truncate text-[11px] font-medium italic font-serif">✉️ "{cleanStr(item.reply) || "답장 대기중.."}"</div>
+                                <div className="flex-1 truncate text-[11px] font-medium italic font-serif">✉️ {cleanStr(item.reply) || "답장 대기중.."}</div>
                                 <button onClick={(e)=>{e.stopPropagation(); onDelete(item.id);}} className="text-red-100 p-1 text-[10px] ml-2"><i className="fa-solid fa-trash-can"></i></button>
                             </div>
                         ))}
@@ -360,14 +368,13 @@
                 const canvas = await html2canvas(printRef.current, { backgroundColor: '#F7F4EB', scale: 2 });
                 const link = document.createElement('a'); link.download = `diary-${Date.now()}.png`; link.href = canvas.toDataURL(); link.click();
             };
-            // ✅ 상세 보기 모달 내부에 독립적인 스크롤 영역 부여
             return (
                 <div className="guide-overlay" style={{background:'#F7F4EB', padding:0}}>
                     <div className="p-6 space-y-6 w-full h-full overflow-y-auto pb-40">
                         <div className="flex justify-between items-center"><button onClick={onClose} className="font-bold text-[#8D6E63] p-2 text-xs font-bold"><i className="fa-solid fa-arrow-left text-lg"></i></button><button onClick={saveAsImage} className="text-[10px] bg-[#8D6E63] text-white px-3 py-1.5 rounded-full shadow-md">이미지 저장</button></div>
                         <div ref={printRef} className="p-2 space-y-6 bg-[#F7F4EB]">
                             <div className="ddb-card space-y-3"><h3 className="text-[9px] opacity-40 uppercase font-bold tracking-widest">My Letter</h3>{letter.attachedImg && <img src={letter.attachedImg} className="w-full rounded-2xl mb-2 shadow-sm" />}<p className="letter-text whitespace-pre-wrap text-[16px]">{letter.content}</p></div>
-                            <div className="ddb-card space-y-4 bg-[#fffdf9] border border-orange-50 shadow-sm"><div className="flex justify-between items-start"><h3 className="text-[9px] text-[#8D6E63] uppercase font-bold tracking-widest">{characterName}'s Reply</h3><img src={letter.stampImg} className="w-14 h-14 object-contain rotate-6 drop-shadow-md" /></div><p className="letter-text italic text-[#5D4037] whitespace-pre-wrap font-medium text-[16px]">"{cleanStr(letter.reply) || '답장을 기다리는 중이야..'}"</p></div>
+                            <div className="ddb-card space-y-4 bg-[#fffdf9] border border-orange-50 shadow-sm"><div className="flex justify-between items-start"><h3 className="text-[9px] text-[#8D6E63] uppercase font-bold tracking-widest">{characterName}'s Reply</h3><img src={letter.stampImg} className="w-14 h-14 object-contain rotate-6 drop-shadow-md" /></div><p className="letter-text italic text-[#5D4037] whitespace-pre-wrap font-medium text-[16px]">{cleanStr(letter.reply) || '답장을 기다리는 중이야..'}</p></div>
                         </div>
                     </div>
                 </div>
@@ -420,7 +427,7 @@
                         <textarea className="w-full p-4 border rounded-[20px] h-28 text-[11px] leading-relaxed bg-transparent" placeholder="AI 말투 설정" value={settings.persona} onChange={e=>setSettings({...settings, persona:e.target.value})} />
                         <button onClick={save} className="w-full bg-[#8D6E63] text-white py-3 rounded-2xl font-bold shadow-md text-xs active:scale-95 transition">설정 저장</button>
                     </div>
-                    <button onClick={()=>auth.signOut()} className="w-full text-red-300 text-[10px] font-bold opacity-50 uppercase text-center mt-4 tracking-widest font-bold">Logout</button>
+                    <button onClick={()=>auth.signOut()} className="w-full text-red-300 text-[10px] font-bold opacity-50 uppercase text-center mt-4 font-bold">Logout</button>
                 </div>
             );
         };
