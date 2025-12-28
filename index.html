@@ -125,18 +125,8 @@
 
                 if(!key) return "API 키를 등록해주세요.";
                 try {
-                    // ✅ 멀티모달(이미지+텍스트) 데이터 구조 수정
-                    let contentArray = [];
-                    contentArray.push({ type: "text", text: msg + instruction });
-                    
-                    if (base64Img) {
-                        // 규격화된 이미지 URL 형식 보장
-                        const finalImgUrl = base64Img.includes("base64,") ? base64Img : `data:image/jpeg;base64,${base64Img}`;
-                        contentArray.push({
-                            type: "image_url",
-                            image_url: { url: finalImgUrl }
-                        });
-                    }
+                    let content = [{ type: "text", text: msg + instruction }];
+                    if (base64Img) content.push({ type: "image_url", image_url: { url: base64Img } });
 
                     const res = await fetch("https://api.openai.com/v1/chat/completions", {
                         method: "POST",
@@ -145,17 +135,13 @@
                             model: "gpt-4o-mini", 
                             messages: [
                                 { role: "system", content: `당신은 ${settings.characterName}입니다. 페르소나: ${settings.persona}. 절대지시: 따옴표 금지. 캐릭터 말투로 정성껏 작성하세요.` },
-                                { role: "user", content: contentArray }
+                                { role: "user", content: content }
                             ]
                         })
                     });
                     const json = await res.json();
-                    if (json.error) throw new Error(json.error.message);
                     return json.choices[0].message.content;
-                } catch(e) { 
-                    console.error("AI 호출 오류:", e);
-                    return "통신 실패.. API 키나 네트워크를 확인해주세요."; 
-                }
+                } catch(e) { return "통신 실패.."; }
             };
 
             useEffect(() => {
@@ -173,7 +159,8 @@
 
                         const lastAdvice = data.advices[0];
                         if (!lastAdvice || new Date(lastAdvice.date).toDateString() !== todayStr) {
-                            const aRes = await callAI(`오늘 날씨는 ${weatherInfo.desc}야. 네 캐릭터 말투로 사용자에게 다정한 조언을 "정확히 3문장"으로만 해줘.`);
+                            // ✅ 날씨 정보를 제외하고 캐릭터 어투로 정확히 3문장 조언 생성
+                            const aRes = await callAI(`네 캐릭터 말투로 사용자에게 오늘 하루 힘이 될 만한 다정한 조언을 "정확히 3문장"으로만 해줘.`);
                             db.collection('users').doc(user.uid).collection('daily_cache').add({ type: 'advice', content: aRes, date: new Date().toISOString() });
                         }
                         const lastFortune = data.fortunes[0];
@@ -184,7 +171,7 @@
                     };
                     if(data.trackers.length >= 0) generateDailyData();
                 }
-            }, [user, activeTab, data.trackers.length, weatherInfo.desc]);
+            }, [user, activeTab, data.trackers.length]);
 
             return (
                 <div className="app-shell">
@@ -311,21 +298,11 @@
                     const deliverAt = new Date(new Date().getTime() + delay * 60000).toISOString();
                     
                     const docRef = await db.collection('users').doc(user.uid).collection('letters').add({ content: text, reply: "", date: new Date().toISOString(), deliverAt, stampImg, attachedImg: image });
-                    
-                    alert("전송됨!"); 
-                    const currentText = text;
-                    const currentImg = image;
-                    setText(''); setImage(null);
-
-                    // AI 답장 생성
-                    const aiReply = await callAI(currentText, currentImg ? "\n[사진을 분석해서 캐릭터답게 정성스러운 장문 답장을 보내줘]" : "\n[정성스럽고 다정한 장문 답장을 보내줘]", currentImg);
+                    alert("전송됨!"); setText(''); setImage(null);
+                    const aiReply = await callAI(text, image ? "\n[사진을 분석해서 캐릭터답게 정성스러운 장문 답장을 보내줘]" : "\n[정성스럽고 다정한 장문 답장을 보내줘]", image);
                     await docRef.update({ reply: aiReply });
-                } catch(e) {
-                    console.error(e);
-                    alert("전송에 실패했습니다.");
-                } finally {
-                    setLoading(false);
-                }
+                } catch(e) {}
+                setLoading(false);
             };
 
             return (
@@ -436,12 +413,12 @@
                             <label className="text-[9px] font-bold opacity-40 uppercase font-bold">Reply Delay</label>
                             <div className="flex gap-1">{['바로', 'n분후', '랜덤'].map(m => (<button key={m} onClick={()=>setSettings({...settings, replyMode: m})} className={`flex-1 py-1.5 rounded-lg text-[9px] ${settings.replyMode===m?'bg-[#8D6E63] text-white':'bg-gray-100 text-gray-400'}`}>{m}</button>))}</div>
                             {settings.replyMode === 'n분후' && <input type="number" className="w-full p-2 border rounded-lg text-[10px]" placeholder="대기 시간(분)" value={settings.fixedDelay} onChange={e=>setSettings({...settings, fixedDelay:e.target.value})} />}
-                            {settings.replyMode === '랜덤' && <div className="flex gap-2 items-center"><input type="number" className="w-1/2 p-2 border rounded-lg text-[10px]" placeholder="최소(분)" value={settings.randomMin} onChange={e=>setSettings({...settings, randomMin:e.target.value})} /><span>~</span><input type="number" className="w-1/2 p-2 border rounded-lg text-[10px]" placeholder="최대(분)" value={settings.randomMax} onChange={e=>setSettings({...settings, randomMax:e.target.value})} /></div>}
+                            {settings.replyMode === '랜덤' && <div className="flex gap-2 items-center"><input type="number" className="w-1/2 p-2 border rounded-lg text-[10px]" placeholder="최소" value={settings.randomMin} onChange={e=>setSettings({...settings, randomMin:e.target.value})} /><span>~</span><input type="number" className="w-1/2 p-2 border rounded-lg text-[10px]" placeholder="최대" value={settings.randomMax} onChange={e=>setSettings({...settings, randomMax:e.target.value})} /></div>}
                         </div>
                         <textarea className="w-full p-4 border rounded-[20px] h-28 text-[11px] leading-relaxed bg-transparent" placeholder="AI 말투 설정" value={settings.persona} onChange={e=>setSettings({...settings, persona:e.target.value})} />
                         <button onClick={save} className="w-full bg-[#8D6E63] text-white py-3 rounded-2xl font-bold shadow-md text-xs active:scale-95 transition">설정 저장</button>
                     </div>
-                    <button onClick={()=>auth.signOut()} className="w-full text-red-300 text-[10px] font-bold opacity-50 uppercase text-center mt-4 tracking-widest font-bold">Logout</button>
+                    <button onClick={()=>auth.signOut()} className="w-full text-red-300 text-[10px] font-bold opacity-50 uppercase text-center mt-4 font-bold">Logout</button>
                 </div>
             );
         };
