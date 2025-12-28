@@ -80,19 +80,8 @@
                 });
             }, []);
 
-            // ✅ 여기에 요청하신 로그인 유지 및 리다이렉트 로직을 넣었습니다.
             useEffect(() => {
-                // 1. 로그인 유지 설정 (LOCAL)
                 auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
-
-                // 2. 모바일 리다이렉트 로그인 결과 처리
-                auth.getRedirectResult().then((result) => {
-                    if (result.user) setUser(result.user);
-                }).catch((error) => {
-                    if (error.code === 'auth/unauthorized-domain') {
-                        alert("파이어베이스 승인 도메인 설정을 확인해줘!");
-                    }
-                });
 
                 const unsub = auth.onAuthStateChanged(async (u) => {
                     if (u) {
@@ -107,6 +96,8 @@
                             setShowGuide(true);
                         }
                         await loadData(u.uid);
+                    } else {
+                        setUser(null);
                     }
                     setIsBooting(false);
                 });
@@ -134,9 +125,18 @@
                 } catch(e) { return "통신 실패.."; }
             };
 
-            const handleLogin = () => {
+            const handleLogin = async () => {
                 const provider = new firebase.auth.GoogleAuthProvider();
-                auth.signInWithRedirect(provider);
+                try {
+                    // Redirect 대신 Popup을 사용하여 Vercel 도메인에서의 리다이렉트 문제를 방지합니다.
+                    await auth.signInWithPopup(provider);
+                } catch (error) {
+                    console.error("로그인 실패:", error);
+                    // 팝업이 차단된 경우를 위해 리다이렉트 대안을 남겨둡니다.
+                    if (error.code === 'auth/popup-blocked') {
+                        auth.signInWithRedirect(provider);
+                    }
+                }
             };
 
             if (isBooting) return null;
@@ -157,6 +157,7 @@
                         setSettings(newS);
                         await db.collection('users').doc(user.uid).set({ settings: newS }, { merge: true });
                         setShowGuide(false);
+                        setActiveTab('today');
                     }} />}
                     
                     <div className="main-content">
@@ -184,7 +185,6 @@
             );
         };
 
-        // --- 컴포넌트 생략 (기존 기능 그대로 포함) ---
         const NavBtn = ({ icon, label, active, onClick }) => (
             <button onClick={onClick} className={`flex flex-col items-center gap-1 ${active ? 'text-[#8D6E63] font-bold' : 'text-gray-300'}`}>
                 <i className={`fa-solid ${icon} text-lg`}></i>
