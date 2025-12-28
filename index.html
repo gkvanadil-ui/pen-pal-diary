@@ -1,13 +1,72 @@
 <!DOCTYPE html>
 <html lang="ko">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <script src="https://cdn.tailwindcss.com"></script>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DDB Diary</title>
-  </head>
-  <body>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-[#F7F4EB]">
     <div id="root"></div>
-    <script type="module" src="/App.jsx"></script>
-  </body>
+
+    <script type="text/babel">
+        const { useState } = React;
+
+        const App = () => {
+            const [apiKey, setApiKey] = useState(localStorage.getItem('ddb_api_key') || '');
+            const [persona, setPersona] = useState(localStorage.getItem('ddb_persona') || '');
+
+            const saveSettings = () => {
+                localStorage.setItem('ddb_api_key', apiKey);
+                localStorage.setItem('ddb_persona', persona);
+                alert('설정이 저장되었습니다!');
+            };
+
+            return (
+                <div className="min-h-screen flex flex-col items-center p-6">
+                    <div className="w-full max-w-md bg-white rounded-[20px] shadow-lg p-6 mt-10">
+                        <h1 className="text-2xl font-bold text-[#8D6E63] mb-6 text-center">DDB Diary 설정</h1>
+                        
+                        <div className="space-y-6">
+                            <div>
+                                <label className="block text-sm font-bold mb-2 text-[#5D4037]">OpenAI API Key</label>
+                                <input 
+                                    type="password" 
+                                    className="w-full p-3 border border-[#BDBDBD] rounded-xl focus:outline-none focus:ring-2 focus:ring-[#8D6E63]"
+                                    value={apiKey}
+                                    onChange={(e) => setApiKey(e.target.value)}
+                                    placeholder="sk-..."
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-bold mb-2 text-[#5D4037]">AI 페르소나 설정</label>
+                                <textarea 
+                                    className="w-full p-3 border border-[#BDBDBD] rounded-xl h-48 focus:outline-none focus:ring-2 focus:ring-[#8D6E63]"
+                                    value={persona}
+                                    onChange={(e) => setPersona(e.target.value)}
+                                    placeholder="AI 캐릭터의 말투와 성격을 자세히 적어주세요."
+                                />
+                            </div>
+
+                            <button 
+                                onClick={saveSettings}
+                                className="w-full py-4 bg-[#8D6E63] text-white rounded-xl font-bold text-lg hover:bg-[#7D5E53] transition-all active:scale-95"
+                            >
+                                설정 저장하기
+                            </button>
+                        </div>
+                    </div>
+                    <p className="mt-4 text-xs text-[#BDBDBD]">설정값은 브라우저에 안전하게 저장됩니다.</p>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
 </html>
