@@ -31,7 +31,6 @@
         .step-btn { padding: 6px 2px; border-radius: 10px; border: 1px solid #eee; font-size: 9px; transition: 0.2s; background: #fcfcfc; color: #999; text-align: center; }
         .step-btn.active { background: #8D6E63; color: white; border-color: #8D6E63; font-weight: bold; transform: scale(1.05); }
         .letter-text { font-size: 0.95rem; line-height: 1.7; word-break: keep-all; }
-        .guide-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.7); z-index: 200; display: flex; align-items: center; justify-content: center; padding: 20px; }
         .fade-in { animation: fadeIn 0.4s ease-in-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
     </style>
@@ -125,6 +124,7 @@
 
                 if(!key) return "API 키를 등록해주세요.";
                 try {
+                    // ✅ 멀티모달(이미지+텍스트) 지원 구조로 수정
                     let content = [{ type: "text", text: msg + instruction }];
                     if (base64Img) content.push({ type: "image_url", image_url: { url: base64Img } });
 
@@ -291,17 +291,30 @@
             const send = async () => {
                 if(!text.trim()) return alert("내용을 입력해주세요.");
                 setLoading(true);
-                const stampImg = STAMP_LIST[Math.floor(Math.random() * STAMP_LIST.length)];
-                let delay = settings.replyMode === 'n분후' ? parseInt(settings.fixedDelay) : settings.replyMode === '랜덤' ? Math.floor(Math.random()*(parseInt(settings.randomMax)-parseInt(settings.randomMin)+1))+parseInt(settings.randomMin) : 0;
-                const deliverAt = new Date(new Date().getTime() + delay * 60000).toISOString();
-                
-                const docRef = await db.collection('users').doc(user.uid).collection('letters').add({ content: text, reply: "", date: new Date().toISOString(), deliverAt, stampImg, attachedImg: image });
-                alert("전송됨!"); setText(''); setImage(null);
+                // ✅ Try-Catch-Finally로 무한 로딩 방지
                 try {
-                    const aiReply = await callAI(text, image ? "\n[사진을 분석해서 캐릭터답게 정성스러운 장문 답장을 보내줘]" : "\n[정성스럽고 다정한 장문 답장을 보내줘]", image);
+                    const stampImg = STAMP_LIST[Math.floor(Math.random() * STAMP_LIST.length)];
+                    let delay = settings.replyMode === 'n분후' ? parseInt(settings.fixedDelay) : settings.replyMode === '랜덤' ? Math.floor(Math.random()*(parseInt(settings.randomMax)-parseInt(settings.randomMin)+1))+parseInt(settings.randomMin) : 0;
+                    const deliverAt = new Date(new Date().getTime() + delay * 60000).toISOString();
+                    
+                    const docRef = await db.collection('users').doc(user.uid).collection('letters').add({ content: text, reply: "", date: new Date().toISOString(), deliverAt, stampImg, attachedImg: image });
+                    
+                    // 폼 초기화
+                    const currentText = text;
+                    const currentImage = image;
+                    setText(''); 
+                    setImage(null);
+                    alert("전송됨!"); 
+                    
+                    // AI 답장 비동기 생성 (성공여부와 관계없이 로딩은 해제됨)
+                    const aiReply = await callAI(currentText, currentImage ? "\n[사진을 분석해서 캐릭터답게 정성스러운 장문 답장을 보내줘]" : "\n[정성스럽고 다정한 장문 답장을 보내줘]", currentImage);
                     await docRef.update({ reply: aiReply });
-                } catch(e) {}
-                setLoading(false);
+                } catch(e) {
+                    console.error("전송 오류:", e);
+                    alert("메시지 전송에 실패했습니다.");
+                } finally {
+                    setLoading(false);
+                }
             };
 
             return (
@@ -314,8 +327,8 @@
                             }} />
                         </label>
                     </div>
-                    <h2 className="text-center font-bold text-[#8D6E63] mb-4 text-base font-serif font-bold">To. {settings.characterName}</h2>
-                    <div className="flex-1 bg-white rounded-[32px] p-6 shadow-sm border border-[#8D6E6311]"><textarea className="lined-paper focus:outline-none" value={text} onChange={e=>setText(e.target.value)} placeholder="마음을 전해봐!" /></div>
+                    <h2 className="text-center font-bold text-[#8D6E63] mb-4 text-base font-serif">To. {settings.characterName}</h2>
+                    <div className="flex-1 bg-white rounded-[32px] p-6 shadow-sm border border-[#8D6E6311]"><textarea className="lined-paper focus:outline-none" value={text} onChange={e=>setText(e.target.value)} placeholder="마음을 전해봐.." /></div>
                     <button onClick={send} disabled={loading} className="w-full bg-[#8D6E63] text-white py-4 rounded-[24px] font-bold shadow-lg mt-5 text-sm active:scale-95 transition">{loading ? "전송 중..." : "편지 보내기"}</button>
                 </div>
             );
@@ -326,12 +339,11 @@
             const [sDate, setSDate] = useState(new Date());
             const daysInMonth = new Date(vDate.getFullYear(), vDate.getMonth() + 1, 0).getDate();
             const firstDay = new Date(vDate.getFullYear(), vDate.getMonth(), 1).getDay();
-            const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
             const filtered = data.letters.filter(l => new Date(l.date).toDateString() === sDate.toDateString());
 
             return (
                 <div className="p-6 space-y-6">
-                    <div className="flex justify-between items-center px-4"><button onClick={()=>setVDate(new Date(vDate.getFullYear(), vDate.getMonth()-1, 1))} className="opacity-30"><i className="fa-solid fa-chevron-left text-xs"></i></button><h2 className="text-md font-bold text-[#8D6E63] font-serif uppercase tracking-widest">{monthNames[vDate.getMonth()]} {vDate.getFullYear()}</h2><button onClick={()=>setVDate(new Date(vDate.getFullYear(), vDate.getMonth()+1, 1))} className="opacity-30"><i className="fa-solid fa-chevron-right text-xs"></i></button></div>
+                    <div className="flex justify-between items-center px-4"><button onClick={()=>setVDate(new Date(vDate.getFullYear(), vDate.getMonth()-1, 1))} className="opacity-30"><i className="fa-solid fa-chevron-left text-xs"></i></button><h2 className="text-md font-bold text-[#8D6E63] font-serif uppercase tracking-widest">{vDate.getFullYear()} / {vDate.getMonth()+1}</h2><button onClick={()=>setVDate(new Date(vDate.getFullYear(), vDate.getMonth()+1, 1))} className="opacity-30"><i className="fa-solid fa-chevron-right text-xs"></i></button></div>
                     <div className="ddb-card p-5 shadow-md"><div className="calendar-grid">
                         {['S','M','T','W','T','F','S'].map(d=><div key={d} className="text-[10px] text-[#D7CCC8] font-bold text-center mb-4">{d}</div>)}
                         {Array(firstDay).fill(0).map((_, i) => <div key={`e-${i}`} />)}
@@ -359,7 +371,6 @@
                 const canvas = await html2canvas(printRef.current, { backgroundColor: '#F7F4EB', scale: 2 });
                 const link = document.createElement('a'); link.download = `diary-${Date.now()}.png`; link.href = canvas.toDataURL(); link.click();
             };
-            // ✅ 상세 보기 모달 내부에 독립적인 스크롤 영역 부여
             return (
                 <div className="guide-overlay" style={{background:'#F7F4EB', padding:0}}>
                     <div className="p-6 space-y-6 w-full h-full overflow-y-auto pb-40">
@@ -414,7 +425,7 @@
                             <label className="text-[9px] font-bold opacity-40 uppercase font-bold">Reply Delay</label>
                             <div className="flex gap-1">{['바로', 'n분후', '랜덤'].map(m => (<button key={m} onClick={()=>setSettings({...settings, replyMode: m})} className={`flex-1 py-1.5 rounded-lg text-[9px] ${settings.replyMode===m?'bg-[#8D6E63] text-white':'bg-gray-100 text-gray-400'}`}>{m}</button>))}</div>
                             {settings.replyMode === 'n분후' && <input type="number" className="w-full p-2 border rounded-lg text-[10px]" placeholder="대기 시간(분)" value={settings.fixedDelay} onChange={e=>setSettings({...settings, fixedDelay:e.target.value})} />}
-                            {settings.replyMode === '랜덤' && <div className="flex gap-2 items-center"><input type="number" className="w-1/2 p-2 border rounded-lg text-[10px]" placeholder="최소(분)" value={settings.randomMin} onChange={e=>setSettings({...settings, randomMin:e.target.value})} /><span>~</span><input type="number" className="w-1/2 p-2 border rounded-lg text-[10px]" placeholder="최대(분)" value={settings.randomMax} onChange={e=>setSettings({...settings, randomMax:e.target.value})} /></div>}
+                            {settings.replyMode === '랜덤' && <div className="flex gap-2 items-center"><input type="number" className="w-1/2 p-2 border rounded-lg text-[10px]" placeholder="최소" value={settings.randomMin} onChange={e=>setSettings({...settings, randomMin:e.target.value})} /><span>~</span><input type="number" className="w-1/2 p-2 border rounded-lg text-[10px]" placeholder="최대" value={settings.randomMax} onChange={e=>setSettings({...settings, randomMax:e.target.value})} /></div>}
                         </div>
                         <textarea className="w-full p-4 border rounded-[20px] h-28 text-[11px] leading-relaxed bg-transparent" placeholder="AI 말투 설정" value={settings.persona} onChange={e=>setSettings({...settings, persona:e.target.value})} />
                         <button onClick={save} className="w-full bg-[#8D6E63] text-white py-3 rounded-2xl font-bold shadow-md text-xs active:scale-95 transition">설정 저장</button>
