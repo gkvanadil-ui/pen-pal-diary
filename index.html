@@ -14,10 +14,11 @@
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Gowun+Dodum&display=swap');
-        body { font-family: 'Gowun Dodum', sans-serif; background-color: #F7F4EB; }
+        body { font-family: 'Gowun Dodum', sans-serif; background-color: #F7F4EB; color: #5D4037; }
         .lined-paper { background-image: linear-gradient(transparent 33px, rgba(141, 110, 99, 0.2) 34px); background-size: 100% 34px; line-height: 34px; }
-        .tab-bar { position: fixed; bottom: 0; width: 100%; max-width: 480px; background: white; display: flex; justify-content: space-around; padding: 12px 0; border-top: 1px solid #eee; z-index: 50; }
-        .stat-card { background: white; border-radius: 20px; padding: 15px; box-shadow: 0 4px 8px rgba(0,0,0,0.05); text-align: center; flex: 1; }
+        .tab-bar { position: fixed; bottom: 0; width: 100%; max-width: 480px; background: white; display: flex; justify-content: space-around; padding: 12px 0; border-top: 1px solid #eee; z-index: 100; }
+        .ddb-card { background: white; border-radius: 20px; padding: 20px; box-shadow: 0 4px 8px rgba(0,0,0,0.05); }
+        .outline-text { color: #5D4037; font-weight: bold; text-shadow: -1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff, 1px 1px 0 #fff; }
     </style>
 </head>
 <body class="flex justify-center">
@@ -26,7 +27,7 @@
     <script type="text/babel">
         const { useState, useEffect } = React;
 
-        // ✅ 토마토님이 주신 Firebase 설정
+        // ✅ 토마토님의 Firebase 설정
         const firebaseConfig = {
             apiKey: "AIzaSyBhgHe856C8jJUsW_3gjJSOO3mlQXDee-c",
             authDomain: "diri-penpal-diary.firebaseapp.com",
@@ -45,70 +46,47 @@
             const [user, setUser] = useState(null);
             const [activeTab, setActiveTab] = useState('today');
             const [letters, setLetters] = useState([]);
-            const [settings, setSettings] = useState({ userName: '', characterName: '', apiKey: '', persona: '' });
-            const [isSending, setIsSending] = useState(false);
+            const [trackers, setTrackers] = useState([]);
+            const [fortunes, setFortunes] = useState([]);
+            const [settings, setSettings] = useState({ userName: '나의 이름', characterName: '펜팔 친구', apiKey: '', persona: '' });
+            const [adviceText, setAdviceText] = useState('오늘 하루도 행복하게 보내세요! ✨');
 
             useEffect(() => {
                 auth.onAuthStateChanged(async (u) => {
                     if (u) {
                         setUser(u);
                         const doc = await db.collection('users').doc(u.uid).get();
-                        if (doc.exists) {
-                            setSettings(doc.data().settings || {});
-                            loadLetters(u.uid);
-                        } else { setActiveTab('settings'); }
-                    } else { setUser(null); }
+                        if (doc.exists) setSettings(doc.data().settings || {});
+                        else setActiveTab('settings');
+                        loadData(u.uid);
+                    } else setUser(null);
                 });
             }, []);
 
-            const loadLetters = async (uid) => {
-                const snapshot = await db.collection('users').doc(uid).collection('letters').orderBy('date', 'desc').get();
-                setLetters(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+            const loadData = async (uid) => {
+                const lSnap = await db.collection('users').doc(uid).collection('letters').orderBy('date', 'desc').get();
+                const tSnap = await db.collection('users').doc(uid).collection('trackers').orderBy('date', 'desc').get();
+                const fSnap = await db.collection('users').doc(uid).collection('fortunes').orderBy('date', 'desc').get();
+                setLetters(lSnap.docs.map(d => ({id: d.id, ...d.data()})));
+                setTrackers(tSnap.docs.map(d => ({id: d.id, ...d.data()})));
+                setFortunes(fSnap.docs.map(d => ({id: d.id, ...d.data()})));
             };
 
-            const googleLogin = () => {
-                const provider = new firebase.auth.GoogleAuthProvider();
-                auth.signInWithPopup(provider).catch(e => alert("로그인 오류: " + e.message));
-            };
-
-            const saveSettings = async () => {
-                if (!user) return;
-                try {
-                    await db.collection('users').doc(user.uid).set({ settings }, { merge: true });
-                    alert("구글 계정에 설정이 저장되었습니다!");
-                    setActiveTab('today'); 
-                } catch (e) { alert("저장 실패: " + e.message); }
-            };
-
-            const sendLetter = async (text) => {
-                if (!settings.apiKey) return alert("설정에서 OpenAI API Key를 등록해주세요!");
-                setIsSending(true);
-                try {
-                    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-                        method: "POST",
-                        headers: { "Authorization": `Bearer ${settings.apiKey}`, "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                            model: "gpt-4o",
-                            messages: [
-                                { role: "system", content: `당신은 ${settings.characterName}입니다. 페르소나: ${settings.persona}. ${settings.userName}에게 답장하세요.` },
-                                { role: "user", content: text }
-                            ]
-                        })
-                    });
-                    const data = await response.json();
-                    const reply = data.choices[0].message.content;
-                    const newLetter = { date: new Date().toISOString(), content: text, reply: reply };
-                    await db.collection('users').doc(user.uid).collection('letters').add(newLetter);
-                    loadLetters(user.uid);
-                    setActiveTab('today');
-                } catch (e) { alert("AI 답장 생성 실패!"); }
-                setIsSending(false);
+            const fetchAI = async (sys, userTxt) => {
+                if (!settings.apiKey) return "API 키가 없습니다.";
+                const res = await fetch("https://api.openai.com/v1/chat/completions", {
+                    method: "POST",
+                    headers: { "Authorization": `Bearer ${settings.apiKey}`, "Content-Type": "application/json" },
+                    body: JSON.stringify({ model: "gpt-4o", messages: [{role:"system", content:sys}, {role:"user", content:userTxt}] })
+                });
+                const data = await response.json();
+                return data.choices[0].message.content;
             };
 
             if (!user) return (
                 <div className="flex flex-col items-center justify-center h-screen p-10 text-center">
                     <h1 className="text-3xl font-bold text-[#8D6E63] mb-8">DIRI-Penpal Diary</h1>
-                    <button onClick={googleLogin} className="bg-white border p-4 rounded-2xl flex items-center gap-3 shadow-sm active:scale-95 transition">
+                    <button onClick={() => auth.signInWithPopup(new firebase.auth.GoogleAuthProvider())} className="bg-white border p-4 rounded-2xl flex items-center gap-3 shadow-md">
                         <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" width="20"/>
                         구글 계정으로 시작하기
                     </button>
@@ -117,54 +95,205 @@
 
             return (
                 <div className="flex flex-col min-h-screen">
-                    {/* 1. 오늘 탭 */}
-                    {activeTab === 'today' && <div className="p-6 space-y-6">
-                        <div className="bg-white p-6 rounded-3xl shadow-sm border border-[#8D6E631A]">
-                            <h3 className="font-bold text-[#8D6E63]">{settings.characterName || '친구'}</h3>
-                            <p className="mt-2 text-gray-600 leading-relaxed whitespace-pre-wrap italic">
-                                "{letters[0]?.reply || "반가워! 오늘 하루는 어땠어? 네 편지를 기다릴게."}"
-                            </p>
-                        </div>
-                        <div className="stat-card">
-                            <span className="text-[10px] text-gray-400">보낸 편지</span>
-                            <p className="text-xl font-bold text-[#8D6E63]">{letters.length}</p>
-                        </div>
-                    </div>}
-
-                    {/* 2. 편지 쓰기 탭 */}
-                    {activeTab === 'write' && <WriteView onSend={sendLetter} isSending={isSending} settings={settings} />}
-
-                    {/* 3. 설정 탭 */}
-                    {activeTab === 'settings' && <div className="p-6 space-y-4">
-                        <h2 className="text-xl font-bold text-center text-[#8D6E63]">DIRI-Penpal 설정</h2>
-                        <div className="bg-white p-6 rounded-3xl space-y-5 shadow-sm">
-                            <input className="w-full p-3 border-b" placeholder="나의 이름" value={settings.userName} onChange={e=>setSettings({...settings, userName:e.target.value})} />
-                            <input className="w-full p-3 border-b" placeholder="캐릭터 이름" value={settings.characterName} onChange={e=>setSettings({...settings, characterName:e.target.value})} />
-                            <input className="w-full p-3 border-b" type="password" placeholder="OpenAI API Key" value={settings.apiKey} onChange={e=>setSettings({...settings, apiKey:e.target.value})} />
-                            <textarea className="w-full p-3 border rounded-xl h-32" placeholder="AI 페르소나" value={settings.persona} onChange={e=>setSettings({...settings, persona:e.target.value})} />
-                            <button onClick={saveSettings} className="w-full bg-[#8D6E63] text-white py-4 rounded-xl font-bold">저장하고 시작하기</button>
-                        </div>
-                    </div>}
+                    {activeTab === 'today' && <Dashboard letters={letters} trackers={trackers} fortunes={fortunes} settings={settings} adviceText={adviceText} setAdviceText={setAdviceText} fetchAI={fetchAI} />}
+                    {activeTab === 'tracker' && <TrackerWrite user={user} trackers={trackers} loadData={loadData} />}
+                    {activeTab === 'write' && <LetterWrite user={user} settings={settings} loadData={loadData} letters={letters} />}
+                    {activeTab === 'calendar' && <CalendarView letters={letters} />}
+                    {activeTab === 'fortune' && <FortuneView user={user} settings={settings} fortunes={fortunes} loadData={loadData} />}
+                    {activeTab === 'settings' && <SettingsView user={user} settings={settings} setSettings={setSettings} onSave={() => setActiveTab('today')} />}
 
                     <div className="tab-bar">
-                        <button onClick={()=>setActiveTab('today')} className={activeTab==='today'?'text-[#8D6E63]':'text-gray-300'}><i className="fa-solid fa-house text-xl"></i></button>
-                        <button onClick={()=>setActiveTab('write')} className={activeTab==='write'?'text-[#8D6E63]':'text-gray-300'}><i className="fa-solid fa-pen-fancy text-xl"></i></button>
-                        <button onClick={()=>setActiveTab('settings')} className={activeTab==='settings'?'text-[#8D6E63]':'text-gray-300'}><i className="fa-solid fa-gear text-xl"></i></button>
-                        <button onClick={()=>auth.signOut()} className="text-red-300 active:scale-90"><i className="fa-solid fa-power-off text-xl"></i></button>
+                        <TabBtn icon="fa-house" label="오늘" active={activeTab==='today'} onClick={()=>setActiveTab('today')} />
+                        <TabBtn icon="fa-clipboard-list" label="기록" active={activeTab==='tracker'} onClick={()=>setActiveTab('tracker')} />
+                        <TabBtn icon="fa-pen-fancy" label="편지" active={activeTab==='write'} onClick={()=>setActiveTab('write')} />
+                        <TabBtn icon="fa-calendar-days" label="캘린더" active={activeTab==='calendar'} onClick={()=>setActiveTab('calendar')} />
+                        <TabBtn icon="fa-wand-sparkles" label="운세" active={activeTab==='fortune'} onClick={()=>setActiveTab('fortune')} />
+                        <TabBtn icon="fa-gear" label="설정" active={activeTab==='settings'} onClick={()=>setActiveTab('settings')} />
                     </div>
                 </div>
             );
         };
 
-        const WriteView = ({ onSend, isSending, settings }) => {
-            const [text, setText] = useState('');
+        const TabBtn = ({ icon, label, active, onClick }) => (
+            <button onClick={onClick} className={`flex flex-col items-center gap-1 ${active ? 'text-[#8D6E63]' : 'text-gray-300'}`}>
+                <i className={`fa-solid ${icon} text-lg`}></i>
+                <span className="text-[10px]">{label}</span>
+            </button>
+        );
+
+        const Dashboard = ({ letters, trackers, fortunes, settings, adviceText, setAdviceText, fetchAI }) => {
+            const getAdvice = async () => {
+                setAdviceText("조언을 생각 중...");
+                const sys = `당신은 ${settings.characterName}입니다. 페르소나: ${settings.persona}. 짧고 힘이 되는 한마디 조언을 해주세요.`;
+                const res = await fetchAI(sys, "오늘의 조언 부탁해");
+                setAdviceText(res);
+            };
             return (
-                <div className="p-6 flex-1 flex flex-col">
+                <div className="p-6 space-y-6">
+                    <div className="flex justify-between items-center text-gray-400 text-xs">
+                        <span>{new Date().toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'long' })}</span>
+                    </div>
+                    {/* 캐릭터 인사 */}
+                    <div className="ddb-card flex gap-4 items-start">
+                        <div className="w-14 h-14 bg-[#8D6E631A] rounded-full flex items-center justify-center border-2 border-[#8D6E63]">
+                            <i className="fa-solid fa-user text-[#8D6E63]"></i>
+                        </div>
+                        <div>
+                            <h4 className="font-bold">{settings.characterName}</h4>
+                            <p className="text-sm mt-1">{letters[0]?.reply || "오늘 하루는 어땠어?"}</p>
+                        </div>
+                    </div>
+                    {/* 오늘의 조언 */}
+                    <div className="p-5 bg-[#EFEBE9] rounded-[20px] space-y-2">
+                        <h5 className="text-[#8D6E63] font-bold text-sm"><i className="fa-solid fa-lightbulb"></i> 오늘의 조언</h5>
+                        <p className="text-sm leading-relaxed">{adviceText}</p>
+                        <button onClick={getAdvice} className="text-[10px] font-bold text-[#8D6E63] pt-2">새로운 조언 듣기</button>
+                    </div>
+                    {/* 통계 */}
+                    <div className="flex gap-3">
+                        <div className="stat-card bg-white rounded-2xl p-4 flex-1 text-center shadow-sm">
+                            <span className="text-[10px] text-gray-400">총 기록</span>
+                            <p className="font-bold text-lg">{letters.length + trackers.length}</p>
+                        </div>
+                        <div className="stat-card bg-[#8D6E63] text-white rounded-2xl p-4 flex-1 text-center shadow-sm">
+                            <span className="text-[10px] opacity-70">연속 기록</span>
+                            <p className="font-bold text-lg">1일</p>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const TrackerWrite = ({ user, trackers, loadData }) => {
+            const [form, setForm] = useState({ sleep: 7, mood: '보통', condition: '보통', exercise: '안함' });
+            const save = async () => {
+                await db.collection('users').doc(user.uid).collection('trackers').add({ ...form, date: new Date().toISOString() });
+                alert("기록되었습니다!");
+                loadData(user.uid);
+            };
+            return (
+                <div className="p-6 space-y-6">
+                    <h2 className="text-xl font-bold text-center">오늘의 기록</h2>
+                    <div className="ddb-card space-y-6">
+                        <div className="space-y-4">
+                            <div className="flex justify-between items-center">
+                                <span>🌙 수면 시간</span>
+                                <b className="text-[#8D6E63]">{form.sleep}h</b>
+                            </div>
+                            <input type="range" min="0" max="12" step="0.5" className="w-full accent-[#8D6E63]" value={form.sleep} onChange={e=>setForm({...form, sleep: e.target.value})} />
+                        </div>
+                        <TrackerRow label="기분" value={form.mood} options={["행복", "좋음", "보통", "우울"]} onChange={v=>setForm({...form, mood: v})} />
+                        <TrackerRow label="컨디션" value={form.condition} options={["상쾌", "보통", "피곤", "아픔"]} onChange={v=>setForm({...form, condition: v})} />
+                    </div>
+                    <button onClick={save} className="w-full bg-[#8D6E63] text-white py-4 rounded-xl font-bold shadow-lg">기록 저장하기</button>
+                </div>
+            );
+        };
+
+        const TrackerRow = ({ label, value, options, onChange }) => (
+            <div className="flex justify-between items-center border-b pb-2">
+                <span className="text-sm">{label}</span>
+                <select className="bg-transparent font-bold text-[#8D6E63]" value={value} onChange={e=>onChange(e.target.value)}>
+                    {options.map(o => <option key={o}>{o}</option>)}
+                </select>
+            </div>
+        );
+
+        const LetterWrite = ({ user, settings, loadData, letters }) => {
+            const [text, setText] = useState('');
+            const [isSending, setIsSending] = useState(false);
+            const send = async () => {
+                if(!text.trim() || !settings.apiKey) return alert("내용 또는 API 키를 확인하세요.");
+                setIsSending(true);
+                const sys = `당신은 ${settings.characterName}입니다. 페르소나: ${settings.persona}. 사용자의 편지에 아주 길고 정성스럽게 답장하세요.`;
+                try {
+                    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+                        method: "POST",
+                        headers: { "Authorization": `Bearer ${settings.apiKey}`, "Content-Type": "application/json" },
+                        body: JSON.stringify({ model: "gpt-4o", messages: [{role:"system", content:sys}, {role:"user", content:text}] })
+                    });
+                    const data = await res.json();
+                    const reply = data.choices[0].message.content;
+                    await db.collection('users').doc(user.uid).collection('letters').add({ content: text, reply, date: new Date().toISOString() });
+                    setText('');
+                    loadData(user.uid);
+                    alert("답장이 도착했습니다!");
+                } catch(e) { alert("통신 오류!"); }
+                setIsSending(false);
+            };
+            return (
+                <div className="p-6 flex flex-col h-full">
                     <h2 className="text-center font-bold mb-4">To. {settings.characterName}</h2>
-                    <textarea className="lined-paper flex-1 w-full bg-transparent focus:outline-none text-lg p-2 min-h-[400px]" value={text} onChange={e=>setText(e.target.value)} placeholder="마음을 담아 적어보세요..." />
-                    <button onClick={()=>onSend(text)} disabled={isSending} className="bg-[#8D6E63] text-white py-4 rounded-2xl font-bold mt-4 shadow-lg active:scale-95 transition">
+                    <textarea className="lined-paper flex-1 w-full bg-transparent border-none focus:outline-none text-lg p-2 min-h-[450px]" value={text} onChange={e=>setText(e.target.value)} placeholder="마음을 전해보세요..." />
+                    <button onClick={send} disabled={isSending} className="w-full bg-[#8D6E63] text-white py-4 rounded-xl font-bold shadow-lg mt-4">
                         {isSending ? <i className="fa-solid fa-spinner fa-spin"></i> : "편지 보내기"}
                     </button>
+                </div>
+            );
+        };
+
+        const CalendarView = ({ letters }) => (
+            <div className="p-6 space-y-4">
+                <h2 className="text-xl font-bold text-center">기록 캘린더</h2>
+                <div className="ddb-card">
+                    <p className="text-center text-gray-400 py-10">캘린더 기능 준비 중...<br/>(아래 편지 목록을 확인하세요)</p>
+                </div>
+                <div className="space-y-3">
+                    {letters.map(l => (
+                        <div key={l.id} className="bg-white p-4 rounded-xl text-sm border-l-4 border-[#8D6E63]">
+                            <p className="font-bold opacity-50 text-[10px]">{new Date(l.date).toLocaleDateString()}</p>
+                            <p className="truncate mt-1">{l.reply}</p>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        );
+
+        const FortuneView = ({ user, settings, fortunes, loadData }) => {
+            const [loading, setLoading] = useState(false);
+            const getFortune = async () => {
+                setLoading(true);
+                const sys = `당신은 ${settings.characterName}입니다. ${settings.userName}에게 오늘의 운세를 아주 정성스럽게 봐주세요.`;
+                const res = await fetch("https://api.openai.com/v1/chat/completions", {
+                    method: "POST",
+                    headers: { "Authorization": `Bearer ${settings.apiKey}`, "Content-Type": "application/json" },
+                    body: JSON.stringify({ model: "gpt-4o", messages: [{role:"system", content:sys}, {role:"user", content:"오늘의 운세를 알려줘"}] })
+                }).then(r => r.json());
+                const fortune = res.choices[0].message.content;
+                await db.collection('users').doc(user.uid).collection('fortunes').add({ content: fortune, date: new Date().toISOString() });
+                loadData(user.uid);
+                setLoading(false);
+            };
+            return (
+                <div className="p-6 space-y-6 text-center">
+                    <h2 className="text-2xl font-bold text-[#8D6E63]">🔮 오늘의 운세</h2>
+                    {loading ? <p className="py-10">운세를 점치는 중...</p> : (
+                        fortunes[0] ? (
+                            <div className="ddb-card text-left leading-relaxed max-h-[400px] overflow-y-auto">
+                                {fortunes[0].content}
+                            </div>
+                        ) : <button onClick={getFortune} className="bg-[#8D6E63] text-white p-6 rounded-2xl font-bold shadow-lg mt-10">운세 뽑기</button>
+                    )}
+                </div>
+            );
+        };
+
+        const SettingsView = ({ user, settings, setSettings, onSave }) => {
+            const save = async () => {
+                await db.collection('users').doc(user.uid).set({ settings }, { merge: true });
+                alert("설정이 동기화되었습니다!");
+                onSave();
+            };
+            return (
+                <div className="p-6 space-y-4">
+                    <h2 className="text-xl font-bold text-center">설정</h2>
+                    <div className="ddb-card space-y-4">
+                        <input className="w-full p-3 border-b focus:outline-none" placeholder="이름" value={settings.userName} onChange={e=>setSettings({...settings, userName:e.target.value})} />
+                        <input className="w-full p-3 border-b focus:outline-none" placeholder="캐릭터 이름" value={settings.characterName} onChange={e=>setSettings({...settings, characterName:e.target.value})} />
+                        <input className="w-full p-3 border-b focus:outline-none" type="password" placeholder="OpenAI API Key" value={settings.apiKey} onChange={e=>setSettings({...settings, apiKey:e.target.value})} />
+                        <textarea className="w-full p-3 border rounded-xl h-40" placeholder="페르소나 설정" value={settings.persona} onChange={e=>setSettings({...settings, persona:e.target.value})} />
+                        <button onClick={save} className="w-full bg-[#8D6E63] text-white py-4 rounded-xl font-bold">저장하기</button>
+                    </div>
                 </div>
             );
         };
