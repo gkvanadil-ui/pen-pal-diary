@@ -147,6 +147,12 @@
                 } catch(e) { return "통신 실패.."; }
             };
 
+            // ✅ 조언 재생성 함수 (페르소나 기반 1문장)
+            const refreshAdvice = async () => {
+                const res = await callAI(`사용자에게 힘이 되는 다정한 조언을 네 캐릭터 말투로 "정확히 1문장"으로만 해줘. [지시: 날씨 언급 절대 금지]`);
+                await db.collection('users').doc(user.uid).collection('daily_cache').add({ type: 'advice', content: res, date: new Date().toISOString() });
+            };
+
             useEffect(() => {
                 if (user && activeTab === 'today') {
                     const todayStr = new Date().toDateString();
@@ -162,9 +168,7 @@
 
                         const lastAdvice = data.advices[0];
                         if (!lastAdvice || new Date(lastAdvice.date).toDateString() !== todayStr) {
-                            // ✅ 캐릭터 페르소나 기반 정확히 1문장 조언 생성 로직 (날씨 정보 제외)
-                            const aRes = await callAI(`네 성격(페르소나)에 맞춰 사용자에게 오늘 하루 힘이 될 만한 다정한 조언을 "정확히 1문장"으로만 해줘. [지시: 날씨나 온도에 대한 언급은 절대 하지 말 것]`);
-                            db.collection('users').doc(user.uid).collection('daily_cache').add({ type: 'advice', content: aRes, date: new Date().toISOString() });
+                            refreshAdvice();
                         }
                         const lastFortune = data.fortunes[0];
                         if (!lastFortune || new Date(lastFortune.date).toDateString() !== todayStr) {
@@ -179,7 +183,7 @@
             return (
                 <div className="app-shell">
                     <div className="main-content">
-                        {activeTab === 'today' && <Dashboard data={data} settings={settings} briefing={briefing} weather={weatherInfo} />}
+                        {activeTab === 'today' && <Dashboard data={data} settings={settings} briefing={briefing} weather={weatherInfo} onRefreshAdvice={refreshAdvice} />}
                         {activeTab === 'tracker' && <TrackerWeekly user={user} trackers={data.trackers} />}
                         {activeTab === 'write' && <LetterWrite user={user} settings={settings} callAI={callAI} STAMP_LIST={STAMP_LIST} />}
                         {activeTab === 'calendar' && <CalendarView data={data} onLetterClick={setSelectedLetter} onDelete={(id) => { if(confirm("삭제?")) db.collection('users').doc(user.uid).collection('letters').doc(id).delete(); }} />}
@@ -199,7 +203,7 @@
             );
         };
 
-        const Dashboard = ({ data, settings, briefing, weather }) => {
+        const Dashboard = ({ data, settings, briefing, weather, onRefreshAdvice }) => {
             const lastL = data.letters[0];
             const isDelivered = lastL ? new Date() >= new Date(lastL.deliverAt) : true;
             return (
@@ -209,18 +213,23 @@
                         <div className="flex-1 space-y-2">
                             <h4 className="font-bold text-[#8D6E63] text-sm">{settings.characterName}</h4>
                             <div className="text-sm bg-[#fdfaf3] p-3 rounded-xl italic leading-relaxed whitespace-pre-wrap font-medium">
-                                "{truncateStr(lastL && isDelivered ? lastL.reply : "편지 기다릴게!", 50)}"
+                                {truncateStr(lastL && isDelivered ? lastL.reply : "편지 기다릴게!", 50)}
                             </div>
                             <p className="text-[10px] opacity-40">지금 날씨: {weather.desc} ({weather.temp}°C)</p>
                         </div>
                     </div>
                     <div className="ddb-card bg-gray-50 p-4 shadow-sm text-center">
                         <h5 className="text-[11px] font-bold text-[#8D6E63] uppercase mb-2 font-serif text-center">Yesterday Briefing 📝</h5>
-                        <p className="text-sm text-gray-600 leading-relaxed font-medium italic">"{cleanStr(briefing)}"</p>
+                        <p className="text-sm text-gray-600 leading-relaxed font-medium italic">{cleanStr(briefing)}</p>
                     </div>
-                    <div className="p-6 bg-[#EFEBE9] rounded-[28px] space-y-3 shadow-sm">
-                        <h5 className="text-[#8D6E63] font-bold text-xs"><i className="fa-solid fa-lightbulb"></i> {settings.characterName}의 조언</h5>
-                        <p className="text-sm italic font-medium whitespace-pre-wrap leading-relaxed">"{cleanStr(data.advices[0]?.content || "행복한 하루 보내!")}"</p>
+                    <div className="p-6 bg-[#EFEBE9] rounded-[28px] space-y-3 shadow-sm relative">
+                        <div className="flex justify-between items-center">
+                            <h5 className="text-[#8D6E63] font-bold text-xs"><i className="fa-solid fa-lightbulb"></i> {settings.characterName}의 조언</h5>
+                            <button onClick={onRefreshAdvice} className="text-[#8D6E63] opacity-30 active:rotate-180 transition-transform duration-500">
+                                <i className="fa-solid fa-arrows-rotate text-xs"></i>
+                            </button>
+                        </div>
+                        <p className="text-sm italic font-medium whitespace-pre-wrap leading-relaxed">{cleanStr(data.advices[0]?.content || "행복한 하루 보내!")}</p>
                     </div>
                     <div className="ddb-card border border-purple-50">
                         <h5 className="text-purple-500 font-bold text-xs mb-2 uppercase tracking-widest font-serif">Today's Fortune ✨</h5>
@@ -421,7 +430,7 @@
                         <textarea className="w-full p-4 border rounded-[20px] h-28 text-[11px] leading-relaxed bg-transparent" placeholder="AI 말투 설정" value={settings.persona} onChange={e=>setSettings({...settings, persona:e.target.value})} />
                         <button onClick={save} className="w-full bg-[#8D6E63] text-white py-3 rounded-2xl font-bold shadow-md text-xs active:scale-95 transition">설정 저장</button>
                     </div>
-                    <button onClick={()=>auth.signOut()} className="w-full text-red-300 text-[10px] font-bold opacity-50 uppercase text-center mt-4 tracking-widest font-bold">Logout</button>
+                    <button onClick={()=>auth.signOut()} className="w-full text-red-300 text-[10px] font-bold opacity-50 uppercase text-center mt-4 font-bold">Logout</button>
                 </div>
             );
         };
