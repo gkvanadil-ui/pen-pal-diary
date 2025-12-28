@@ -1,253 +1,438 @@
-import SwiftUI
-import SwiftData
-import Combine
-import FSCalendar
-import PhotosUI
-import UserNotifications
-
-// MARK: - [1. Design System]
-extension Color {
-    init(hex: String) {
-        let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
-        var int: UInt64 = 0
-        Scanner(string: hex).scanHexInt64(&int)
-        self.init(.sRGB, red: Double(int >> 16)/255, green: Double(int >> 8 & 0xFF)/255, blue: Double(int & 0xFF)/255, opacity: 1)
-    }
-    static let ddbBg = Color(hex: "F7F4EB")
-    static let ddbMain = Color(hex: "8D6E63")
-    static let ddbAccent = Color(hex: "5D4037")
-}
-
-struct DDBCardModifier: ViewModifier {
-    func body(content: Content) -> some View {
-        content
-            .padding(20)
-            .background(Color.white)
-            .cornerRadius(24)
-            .shadow(color: .black.opacity(0.05), radius: 10, x: 0, y: 5)
-    }
-}
-
-extension View {
-    func ddbCard() -> some View { self.modifier(DDBCardModifier()) }
-    func hideKeyboard() { UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil) }
-}
-
-// MARK: - [2. Models & Settings]
-@Model final class LetterModel {
-    var id: UUID = UUID(); var date: Date = Date(); var deliveryDate: Date = Date()
-    var content: String; var reply: String = ""; var stampName: String = ""; var isWaitingReply: Bool = true
-    var sleepTime: Double; var mood: String; var condition: String; var weather: String; var exercise: String
-    var attachedImageData: Data?
-    
-    init(content: String, delay: Int, sleep: Double, mood: String, condition: String, weather: String, exercise: String, imageData: Data?) {
-        self.content = content; self.sleepTime = sleep; self.mood = mood; self.condition = condition; self.weather = weather; self.exercise = exercise; self.attachedImageData = imageData
-        self.deliveryDate = Calendar.current.date(byAdding: .minute, value: delay, to: Date()) ?? Date()
-    }
-}
-
-@Model final class TrackerModel {
-    var id: UUID = UUID(); var date: Date = Date()
-    var sleepTime: Double; var mood: String; var condition: String; var weather: String; var exercise: String
-    init(sleep: Double, mood: String, condition: String, weather: String, exercise: String) {
-        self.sleepTime = sleep; self.mood = mood; self.condition = condition; self.weather = weather; self.exercise = exercise
-    }
-}
-
-@Model final class FortuneModel {
-    var id: UUID = UUID(); var date: Date = Date(); var content: String
-    init(content: String) { self.content = content }
-}
-
-final class AppSettings: ObservableObject {
-    static let shared = AppSettings()
-    @AppStorage("userName") var userName = "나의 이름"
-    @AppStorage("characterName") var characterName = "히요리"
-    @AppStorage("openAIKey") var openAIKey = ""
-    @AppStorage("hasSeenGuide") var hasSeenGuide = false
-    @AppStorage("personaPrompt") var personaPrompt = ""
-    @Published var isSetupCompleted: Bool = false
-    
-    init() { if !openAIKey.isEmpty { isSetupCompleted = true } }
-    func completeSetup() { if !openAIKey.isEmpty { withAnimation { isSetupCompleted = true } } }
-}
-
-// MARK: - [3. Main Views]
-struct ContentView: View {
-    @StateObject var settings = AppSettings.shared
-    @State private var refreshID = UUID()
-    @State private var showGuide = false
-    
-    var body: some View {
-        ZStack {
-            if !settings.isSetupCompleted { SettingsView() }
-            else {
-                TabView {
-                    DashboardView(refreshID: refreshID).tabItem { Label("오늘", systemImage: "house.fill") }
-                    TrackerWriteView().tabItem { Label("기록", systemImage: "clipboard.fill") }
-                    LetterWriteView(refreshID: $refreshID).tabItem { Label("편지", systemImage: "envelope.fill") }
-                    LetterCalendarView(refreshID: refreshID).tabItem { Label("캘린더", systemImage: "calendar") }
-                    FortuneView().tabItem { Label("운세", systemImage: "sparkles") }
-                    SettingsView().tabItem { Label("설정", systemImage: "gearshape.fill") }
-                }
-                .accentColor(.ddbMain)
-            }
-            if showGuide { GuidePopupView(isPresented: $showGuide) }
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>DIRI-Penpal Diary</title>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Gowun+Dodum&display=swap');
+        
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        body { 
+            font-family: 'Gowun Dodum', sans-serif; 
+            background-color: #F7F4EB; 
+            margin: 0; 
+            color: #5D4037; 
+            overflow: hidden; 
         }
-        .onAppear { if settings.isSetupCompleted && !settings.hasSeenGuide { withAnimation { showGuide = true } } }
-    }
-}
 
-// MARK: - [4. Dashboard & Logic]
-struct DashboardView: View {
-    var refreshID: UUID
-    @Query(sort: \LetterModel.date, order: .reverse) var letters: [LetterModel]
-    @Query(sort: \TrackerModel.date, order: .reverse) var trackers: [TrackerModel]
-    @State private var adviceText = "반가워요! 오늘 기분은 어떤가요? ✨"
-    
-    var todayLetter: LetterModel? { letters.first(where: { Calendar.current.isDateInToday($0.date) }) }
-    var todayTracker: TrackerModel? { trackers.first(where: { Calendar.current.isDateInToday($0.date) }) }
-
-    var body: some View {
-        NavigationStack {
-            ZStack {
-                Color.ddbBg.ignoresSafeArea()
-                ScrollView {
-                    VStack(spacing: 20) {
-                        // 캐릭터 말풍선 요약
-                        HStack(spacing: 15) {
-                            Circle().fill(Color.ddbMain.opacity(0.1)).frame(width: 60, height: 60).overlay(Image(systemName: "person.fill").foregroundColor(.ddbMain))
-                            VStack(alignment: .leading) {
-                                Text(AppSettings.shared.characterName).bold()
-                                Text(todayLetter?.isWaitingReply == true ? "편지를 쓰고 있어요... 🕰️" : (todayLetter?.reply ?? "오늘도 좋은 하루 보내세요!")).font(.subheadline).lineLimit(2)
-                            }
-                            Spacer()
-                        }.ddbCard()
-                        
-                        // 건강 기록 요약 (스크린샷 반영)
-                        VStack(alignment: .leading, spacing: 12) {
-                            Label("오늘의 건강 기록", systemImage: "heart.text.square.fill").font(.headline)
-                            if let tracker = todayTracker {
-                                Grid(alignment: .leading, horizontalSpacing: 20, verticalSpacing: 10) {
-                                    GridRow { Text("😊 기분: \(tracker.mood)"); Text("🤒 컨디션: \(tracker.condition)") }
-                                    GridRow { Text("🏃 운동: \(tracker.exercise)"); Text("☀️ 날씨: \(tracker.weather)") }
-                                }
-                            } else {
-                                Text("기록 탭에서 오늘을 기록해주세요.").font(.caption).foregroundColor(.gray)
-                            }
-                        }.ddbCard()
-                    }.padding()
-                }
-            }
-            .navigationTitle("DIRI-Penpal")
+        /* 📱 모바일 UI 깨짐 방지: dvh 적용 */
+        .app-shell { 
+            width: 100%; 
+            max-width: 480px; 
+            height: 100dvh; 
+            display: flex; 
+            flex-direction: column; 
+            margin: 0 auto; 
+            background-color: #F7F4EB; 
+            position: relative; 
+            box-shadow: 0 0 20px rgba(0,0,0,0.1);
+            overflow: hidden;
         }
-    }
-}
 
-// MARK: - [5. Tracker & History (네비게이션 해결)]
-struct TrackerWriteView: View {
-    @Environment(\.modelContext) private var modelContext
-    @State private var sleepTime: Double = 7.0
-    @State private var mood = "보통"
-    @State private var isSaved = false
+        .main-content { 
+            flex: 1; 
+            overflow-y: auto; 
+            padding-bottom: 110px; 
+            scrollbar-width: none; 
+            -webkit-overflow-scrolling: touch;
+        }
+        .main-content::-webkit-scrollbar { display: none; }
 
-    var body: some View {
-        NavigationStack {
-            ZStack {
-                Color.ddbBg.ignoresSafeArea()
-                VStack(spacing: 25) {
-                    VStack(spacing: 20) {
-                        HStack { Text("🌙 수면 시간"); Spacer(); Text("\(String(format: "%.1f", sleepTime))h").bold() }
-                        Slider(value: $sleepTime, in: 0...12, step: 0.5).tint(.ddbMain)
-                        Picker("기분", selection: $mood) {
-                            ForEach(["좋음", "보통", "우울"], id: \.self) { Text($0) }
-                        }.pickerStyle(.segmented)
-                    }.ddbCard()
+        .bottom-nav { 
+            position: absolute; 
+            bottom: 0; 
+            width: 100%; 
+            height: calc(85px + env(safe-area-inset-bottom)); 
+            background: white; 
+            display: flex; 
+            justify-content: space-around; 
+            align-items: flex-start; 
+            padding-top: 15px;
+            border-top: 1px solid #eee; 
+            z-index: 100; 
+            padding-bottom: env(safe-area-inset-bottom); 
+        }
+
+        .ddb-card { background: white; border-radius: 28px; padding: 22px; box-shadow: 0 4px 15px rgba(141, 110, 99, 0.06); }
+        .lined-paper { 
+            background-image: linear-gradient(transparent 39px, rgba(141, 110, 99, 0.1) 40px); 
+            background-size: 100% 40px; 
+            line-height: 40px; 
+            border: none; 
+            resize: none; 
+            width: 100%; 
+            height: 100%; 
+            min-height: 400px;
+            font-size: 18px; 
+            outline: none;
+            background-color: transparent;
+        }
+
+        .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+        .calendar-day { aspect-ratio: 1/1; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 12px; position: relative; background: #fff; cursor: pointer; }
+        .calendar-day.selected { border: 2px solid #8D6E63; }
+        .stamp-img { width: 85%; height: 85%; object-fit: contain; position: absolute; z-index: 1; }
+        
+        .guide-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.7); z-index: 200; display: flex; align-items: center; justify-content: center; padding: 20px; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useCallback } = React;
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyBhgHe856C8jJUsW_3gjJSOO3mlQXDee-c",
+            authDomain: "diri-penpal-diary.firebaseapp.com",
+            projectId: "diri-penpal-diary",
+            storageBucket: "diri-penpal-diary.firebasestorage.app",
+            messagingSenderId: "587612499384",
+            appId: "1:587612499384:web:8c1f491372cb112050334d"
+        };
+        
+        if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+
+        const STAMP_BASE_URL = "stamps/"; 
+        const STAMP_LIST = Array.from({ length: 118 }, (_, i) => {
+            const num = String(i + 1).padStart(5, '0');
+            return `${STAMP_BASE_URL}stamp_${num}.png`;
+        });
+
+        const App = () => {
+            const [user, setUser] = useState(null);
+            const [activeTab, setActiveTab] = useState('today');
+            const [data, setData] = useState({ letters: [], trackers: [], fortunes: [] });
+            const [settings, setSettings] = useState({ 
+                userName: '나의 이름', characterName: '히요리', apiKey: '', persona: '', profileImg: '',
+                replyMode: '바로', fixedDelay: 10, randomMin: 5, randomMax: 30, hasSeenGuide: false
+            });
+            const [showGuide, setShowGuide] = useState(false);
+            const [advice, setAdvice] = useState('반가워! 오늘 하루는 어땠어? ✨');
+            const [selectedDetail, setSelectedDetail] = useState(null); // 날짜 상세 팝업용
+            const [currentTime, setCurrentTime] = useState(new Date());
+
+            const loadData = useCallback(async (uid) => {
+                const [l, t, f] = await Promise.all([
+                    db.collection('users').doc(uid).collection('letters').orderBy('date', 'desc').get(),
+                    db.collection('users').doc(uid).collection('trackers').orderBy('date', 'desc').get(),
+                    db.collection('users').doc(uid).collection('fortunes').orderBy('date', 'desc').get()
+                ]);
+                setData({
+                    letters: l.docs.map(d => ({id: d.id, ...d.data()})),
+                    trackers: t.docs.map(d => ({id: d.id, ...d.data()})),
+                    fortunes: f.docs.map(d => ({id: d.id, ...d.data()}))
+                });
+            }, []);
+
+            useEffect(() => {
+                auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+                const timer = setInterval(() => setCurrentTime(new Date()), 30000);
+                
+                const unsub = auth.onAuthStateChanged(async (u) => {
+                    if (u) {
+                        setUser(u);
+                        const doc = await db.collection('users').doc(u.uid).get();
+                        if (doc.exists) {
+                            const savedSettings = doc.data().settings;
+                            setSettings(prev => ({...prev, ...savedSettings}));
+                            if (!savedSettings.hasSeenGuide) setShowGuide(true);
+                        } else {
+                            setActiveTab('settings');
+                            setShowGuide(true);
+                        }
+                        await loadData(u.uid);
+                    } else setUser(null);
+                });
+                return () => { unsub(); clearInterval(timer); };
+            }, [loadData]);
+
+            const callAI = async (personaContext, msg, specialOrder = "") => {
+                if(!settings.apiKey) return "API 키를 등록해주세요.";
+                try {
+                    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+                        method: "POST",
+                        headers: { "Authorization": `Bearer ${settings.apiKey}`, "Content-Type": "application/json" },
+                        body: JSON.stringify({ 
+                            model: "gpt-4o", 
+                            messages: [{
+                                role: "system", 
+                                content: `당신은 ${settings.characterName}입니다.\n\n[페르소나]\n${settings.persona}\n\n[지시]\n말투를 200% 유지하세요. AI처럼 굴지 마세요.\n${specialOrder}`
+                            }, {role: "user", content: msg}] 
+                        })
+                    });
+                    const json = await res.json();
+                    return json.choices[0].message.content;
+                } catch(e) { return "통신 실패.."; }
+            };
+
+            const closeGuide = async () => {
+                const newS = { ...settings, hasSeenGuide: true };
+                setSettings(newS);
+                if (user) await db.collection('users').doc(user.uid).set({ settings: newS }, { merge: true });
+                setShowGuide(false);
+            };
+
+            if (!user) return (
+                <div className="app-shell items-center justify-center p-10 text-center">
+                    <h1 className="text-4xl font-bold text-[#8D6E63] mb-8 font-serif">DIRI-Penpal</h1>
+                    <button onClick={() => auth.signInWithPopup(new firebase.auth.GoogleAuthProvider())} className="w-full bg-white border py-4 rounded-3xl flex items-center justify-center gap-3 shadow-md active:scale-95 transition">
+                        <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" width="20"/> 구글 로그인 시작
+                    </button>
+                </div>
+            );
+
+            return (
+                <div className="app-shell">
+                    {showGuide && <GuidePage onFinish={closeGuide} />}
                     
-                    Button {
-                        modelContext.insert(TrackerModel(sleep: sleepTime, mood: mood, condition: "보통", weather: "맑음", exercise: "안함"))
-                        withAnimation { isSaved = true }
-                    } label: {
-                        Text(isSaved ? "저장 완료!" : "기록 저장하기").bold().frame(maxWidth: .infinity).padding().background(isSaved ? .green : Color.ddbMain).foregroundColor(.white).cornerRadius(15)
-                    }
-                    
-                    NavigationLink(destination: TrackerHistoryView()) {
-                        Label("지난 기록 달력으로 보기", systemImage: "calendar").bold().frame(maxWidth: .infinity).padding().background(.white).foregroundColor(.ddbMain).cornerRadius(15).shadow(radius: 2)
-                    }
-                    Spacer()
-                }.padding()
-            }
-            .navigationTitle("오늘의 기록")
-        }
-    }
-}
+                    <div className="main-content">
+                        {activeTab === 'today' && <Dashboard data={data} settings={settings} advice={advice} setAdvice={setAdvice} callAI={callAI} currentTime={currentTime} />}
+                        {activeTab === 'tracker' && <TrackerWrite user={user} loadData={() => loadData(user.uid)} onGoCalendar={() => setActiveTab('calendar')} />}
+                        {activeTab === 'write' && <LetterWrite user={user} settings={settings} trackers={data.trackers} loadData={() => loadData(user.uid)} callAI={callAI} STAMP_LIST={STAMP_LIST} />}
+                        {activeTab === 'calendar' && <CalendarView data={data} onDayClick={setSelectedDetail} currentTime={currentTime} />}
+                        {activeTab === 'fortune' && <FortuneView user={user} settings={settings} data={data} loadData={() => loadData(user.uid)} callAI={callAI} />}
+                        {activeTab === 'settings' && <SettingsView user={user} settings={settings} setSettings={setSettings} onSave={()=>setActiveTab('today')} />}
+                    </div>
 
-// MARK: - [6. FSCalendar & Custom Rendering (겹침 방지)]
-class OutlinedLabel: UILabel {
-    var outlineColor: UIColor = .white
-    var outlineWidth: CGFloat = 3.0
-    override func drawText(in rect: CGRect) {
-        let c = UIGraphicsGetCurrentContext()
-        c?.setLineWidth(outlineWidth); c?.setTextDrawingMode(.stroke)
-        let tc = self.textColor; self.textColor = outlineColor; super.drawText(in: rect)
-        c?.setTextDrawingMode(.fill); self.textColor = tc; super.drawText(in: rect)
-    }
-}
+                    {selectedDetail && <DailyPopup data={selectedDetail} characterName={settings.characterName} onClose={() => setSelectedDetail(null)} />}
 
-struct FSCalendarWrapper: UIViewRepresentable {
-    @Binding var selectedDate: Date; let letters: [LetterModel]
-    func makeUIView(context: Context) -> FSCalendar {
-        let c = FSCalendar()
-        c.delegate = context.coordinator; c.dataSource = context.coordinator
-        c.appearance.titleDefaultColor = .clear; c.appearance.titlePlaceholderColor = .clear
-        c.appearance.todayColor = .clear; c.appearance.selectionColor = .clear
-        return c
-    }
-    func updateUIView(_ uiView: FSCalendar, context: Context) { uiView.reloadData() }
-    func makeCoordinator() -> Coordinator { Coordinator(self) }
-    
-    class Coordinator: NSObject, FSCalendarDelegate, FSCalendarDataSource {
-        var parent: FSCalendarWrapper; init(_ parent: FSCalendarWrapper) { self.parent = parent }
-        func calendar(_ calendar: FSCalendar, didSelect date: Date, at monthPosition: FSCalendarMonthPosition) { parent.selectedDate = date; calendar.reloadData() }
-        func calendar(_ calendar: FSCalendar, willDisplay cell: FSCalendarCell, for date: Date, at monthPosition: FSCalendarMonthPosition) {
-            cell.subviews.filter{$0.tag==555}.forEach{$0.removeFromSuperview()}
-            let base = UIView(frame: cell.bounds.insetBy(dx: 2, dy: 2)); base.tag=555; base.layer.cornerRadius=8; base.clipsToBounds=true
+                    <div className="bottom-nav">
+                        <NavBtn icon="fa-house" label="오늘" active={activeTab==='today'} onClick={()=>setActiveTab('today')} />
+                        <NavBtn icon="fa-clipboard-list" label="기록" active={activeTab==='tracker'} onClick={()=>setActiveTab('tracker')} />
+                        <NavBtn icon="fa-pen-fancy" label="편지" active={activeTab==='write'} onClick={()=>setActiveTab('write')} />
+                        <NavBtn icon="fa-calendar-days" label="캘린더" active={activeTab==='calendar'} onClick={()=>setActiveTab('calendar')} />
+                        <NavBtn icon="fa-wand-sparkles" label="운세" active={activeTab==='fortune'} onClick={()=>setActiveTab('fortune')} />
+                        <NavBtn icon="fa-gear" label="설정" active={activeTab==='settings'} onClick={()=>setActiveTab('settings')} />
+                    </div>
+                </div>
+            );
+        };
+
+        const NavBtn = ({ icon, label, active, onClick }) => (
+            <button onClick={onClick} className={`flex flex-col items-center gap-1 transition-all ${active ? 'text-[#8D6E63] scale-105 font-bold' : 'text-gray-300'}`}>
+                <i className={`fa-solid ${icon} text-lg`}></i>
+                <span className="text-[10px] uppercase">{label}</span>
+            </button>
+        );
+
+        const GuidePage = ({ onFinish }) => {
+            const [step, setStep] = useState(1);
+            return (
+                <div className="guide-overlay">
+                    <div className="bg-white w-full max-w-[400px] rounded-[32px] p-8 space-y-6">
+                        {step === 1 && (
+                            <>
+                                <h2 className="text-2xl font-bold text-[#8D6E63]">반가워요! 💌</h2>
+                                <p className="text-sm leading-relaxed text-gray-500">DIRI-Penpal은 AI 친구와 비밀 편지를 주고받는 다이어리예요.</p>
+                                <button onClick={()=>setStep(2)} className="w-full bg-[#8D6E63] text-white py-4 rounded-2xl font-bold">다음으로</button>
+                            </>
+                        )}
+                        {step === 2 && (
+                            <>
+                                <h2 className="text-xl font-bold text-[#8D6E63]">🔑 API 키 등록</h2>
+                                <p className="text-xs text-left bg-gray-50 p-4 rounded-xl">OpenAI 사이트에서 생성한 키를 [설정] 탭에 넣으세요.</p>
+                                <button onClick={()=>setStep(3)} className="w-full bg-[#8D6E63] text-white py-4 rounded-2xl font-bold">이해했어요</button>
+                            </>
+                        )}
+                        {step === 3 && (
+                            <>
+                                <h2 className="text-xl font-bold text-[#8D6E63]">시작할 준비 끝! 🚀</h2>
+                                <button onClick={onFinish} className="w-full bg-[#8D6E63] text-white py-4 rounded-2xl font-bold">시작하기</button>
+                            </>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        const Dashboard = ({ data, settings, advice, setAdvice, callAI, currentTime }) => {
+            const todayT = data.trackers.find(t => new Date(t.date).toDateString() === new Date().toDateString());
+            const lastL = data.letters[0];
+            const isDelivered = lastL ? new Date(currentTime) >= new Date(lastL.deliverAt) : true;
+            return (
+                <div className="p-6 space-y-6">
+                    <div className="ddb-card flex gap-4 items-center">
+                        <img src={settings.profileImg || 'https://via.placeholder.com/100'} className="w-14 h-14 rounded-full border-2 border-[#8D6E63] object-cover" />
+                        <div className="flex-1 overflow-hidden">
+                            <h4 className="font-bold text-[#8D6E63]">{settings.characterName}</h4>
+                            <p className="text-sm mt-1 truncate">{lastL ? (isDelivered ? lastL.reply : "편지를 쓰고 있어..") : "반가워!"}</p>
+                        </div>
+                    </div>
+                    <div className="p-5 bg-[#EFEBE9] rounded-[24px] space-y-2">
+                        <h5 className="text-[#8D6E63] font-bold text-xs"><i className="fa-solid fa-lightbulb"></i> 캐릭터의 조언</h5>
+                        <p className="text-sm leading-relaxed italic">"{advice}"</p>
+                        <button onClick={async ()=>{setAdvice("생각 중.."); setAdvice(await callAI(settings.persona, "짧게 조언 한마디 해줘."));}} className="text-[10px] text-white bg-[#8D6E63] px-3 py-1 rounded-full mt-2">새로고침</button>
+                    </div>
+                    <div className="ddb-card"><h5 className="text-purple-500 font-bold text-xs"><i className="fa-solid fa-sparkles"></i> 운세 요약</h5><p className="text-sm line-clamp-2 mt-2">{data.fortunes[0]?.content || "운세 탭을 확인해봐!"}</p></div>
+                    <div className="ddb-card">
+                        <h5 className="font-bold text-sm mb-4"><i className="fa-solid fa-chart-line"></i> 오늘의 건강 기록</h5>
+                        {todayT ? (
+                            <div className="grid grid-cols-2 gap-y-3 text-[13px] text-[#5D4037]">
+                                <span>😊 기분: {todayT.mood}</span><span>🤒 컨디션: {todayT.condition}</span><span>🏃 운동: {todayT.exercise}h</span><span>☀️ 날씨: {todayT.weather}</span><span>🌙 수면: {todayT.sleep}h</span>
+                            </div>
+                        ) : <p className="text-center text-gray-300 text-xs py-4">아직 기록이 없어.</p>}
+                    </div>
+                </div>
+            );
+        };
+
+        const TrackerWrite = ({ user, loadData, onGoCalendar }) => {
+            const [form, setForm] = useState({ sleep: 7, mood: '보통', condition: '보통', exercise: '안함', weather: '맑음' });
+            const save = async () => { await db.collection('users').doc(user.uid).collection('trackers').add({...form, date: new Date().toISOString()}); alert("저장 완료!"); loadData(); };
+            return (
+                <div className="p-6 space-y-6">
+                    <h2 className="text-xl font-bold text-center text-[#8D6E63] mt-4 font-serif">오늘의 기록</h2>
+                    <div className="ddb-card space-y-6 text-sm">
+                        {['기분', '컨디션', '운동', '날씨'].map(item => (
+                            <div key={item} className="flex justify-between items-center border-b border-gray-50 pb-4">
+                                <span className="opacity-60">{item}</span>
+                                <span className="bg-[#FDFCF9] px-3 py-1 rounded-lg text-xs border border-gray-100 font-bold">{form[item === '기분' ? 'mood' : item === '컨디션' ? 'condition' : item === '운동' ? 'exercise' : 'weather']}</span>
+                            </div>
+                        ))}
+                        <div><span>🌙 수면: {form.sleep}h</span><input type="range" min="0" max="12" step="0.5" className="w-full accent-[#8D6E63]" value={form.sleep} onChange={e=>setForm({...form, sleep:e.target.value})} /></div>
+                    </div>
+                    <button onClick={save} className="w-full bg-[#8D6E63] text-white py-5 rounded-2xl font-bold shadow-lg">기록 저장하기</button>
+                    <button onClick={onGoCalendar} className="w-full bg-white border border-gray-200 py-4 rounded-2xl flex items-center justify-center gap-2 shadow-sm text-gray-400 text-xs font-bold">
+                        <i className="fa-solid fa-calendar-days text-[#A1887F]"></i> 지난 기록 달력으로 보기
+                    </button>
+                </div>
+            );
+        };
+
+        const LetterWrite = ({ user, settings, trackers, loadData, callAI, STAMP_LIST }) => {
+            const [text, setText] = useState('');
+            const [loading, setLoading] = useState(false);
+            const todayT = trackers.find(t => new Date(t.date).toDateString() === new Date().toDateString());
             
-            if Calendar.current.isDate(date, inSameDayAs: parent.selectedDate) {
-                base.layer.borderWidth = 2; base.layer.borderColor = UIColor(Color.ddbMain).cgColor
-            }
-            
-            let letter = parent.letters.first { Calendar.current.isDate($0.date, inSameDayAs: date) }
-            if let stamp = letter?.stampName, let img = UIImage(named: stamp) {
-                let iv = UIImageView(image: img); iv.contentMode = .scaleAspectFill; iv.frame = base.bounds; base.addSubview(iv)
-            }
-            
-            let l = OutlinedLabel(frame: base.bounds); l.text = "\(Calendar.current.component(.day, from: date))"
-            l.textAlignment = .center; l.font = .boldSystemFont(ofSize: 14); l.textColor = .black; l.outlineColor = .white; l.outlineWidth = 3
-            base.addSubview(l); cell.insertSubview(base, at: 0)
-        }
-    }
-}
+            const send = async () => {
+                if(!text.trim() || !settings.apiKey) return alert("내용 또는 API 키를 확인해줘!");
+                setLoading(true);
+                const reply = await callAI(settings.persona, text);
+                let delay = settings.replyMode === 'n분후' ? parseInt(settings.fixedDelay) : settings.replyMode === '랜덤범위' ? Math.floor(Math.random()*(parseInt(settings.randomMax)-parseInt(settings.randomMin)+1))+parseInt(settings.randomMin) : 0;
+                const deliverAt = new Date(new Date().getTime() + delay * 60000).toISOString();
+                const stampImg = STAMP_LIST[Math.floor(Math.random() * STAMP_LIST.length)];
+                await db.collection('users').doc(user.uid).collection('letters').add({ content: text, reply, date: new Date().toISOString(), deliverAt, stampImg });
+                setText(''); loadData(); setLoading(false); alert("편지를 보냈어!");
+            };
 
-// MARK: - [7. OpenAI Helper]
-func fetchOpenAI(system: String, context: String, user: String, imageData: Data?) async -> String {
-    guard let url = URL(string: "https://api.openai.com/v1/chat/completions") else { return "URL 오류" }
-    var req = URLRequest(url: url); req.httpMethod = "POST"
-    req.setValue("Bearer \(AppSettings.shared.openAIKey)", forHTTPHeaderField: "Authorization")
-    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-    
-    let messages: [[String: Any]] = [["role": "system", "content": system], ["role": "user", "content": user]]
-    let body: [String: Any] = ["model": "gpt-4o", "messages": messages, "max_tokens": 1000]
-    req.httpBody = try? JSONSerialization.data(withJSONObject: body)
-    
-    if let (data, _) = try? await URLSession.shared.data(for: req),
-       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-       let choices = json["choices"] as? [[String: Any]],
-       let content = (choices.first?["message"] as? [String: Any])?["content"] as? String {
-        return content
-    }
-    return "통신 실패... API 키를 확인해주세요."
-}
+            return (
+                <div className="p-6 h-full flex flex-col">
+                    <div className="flex gap-2 mb-4 justify-center">
+                        <div className="bg-white px-4 py-2 rounded-full shadow-sm text-xs text-gray-400 font-bold flex items-center gap-2"><i className="fa-solid fa-camera opacity-30"></i> 사진</div>
+                        {todayT && <div className="bg-white px-4 py-2 rounded-full shadow-sm text-xs font-bold text-gray-400 flex items-center gap-2">
+                            🌙 {todayT.sleep}h {todayT.mood} {todayT.condition}
+                        </div>}
+                    </div>
+                    <h2 className="text-center font-bold text-[#8D6E63] mb-4 font-serif text-lg">To. {settings.characterName}</h2>
+                    <div className="flex-1 bg-white rounded-[32px] p-8 shadow-sm border border-[#8D6E6311]">
+                        <textarea className="lined-paper focus:outline-none" value={text} onChange={e=>setText(e.target.value)} placeholder="마음을 전해봐.." />
+                    </div>
+                    <button onClick={send} disabled={loading} className="w-full bg-[#8D6E63] text-white py-5 rounded-[24px] font-bold shadow-lg mt-6">{loading ? "보내는 중..." : "편지 보내기"}</button>
+                </div>
+            );
+        };
 
-// 나머지 뷰들(FortuneView, TrackerHistoryView 등)은 제공해주신 로직과 동일하게 작동하며, 
-// NavigationStack 내에서 안전하게 구동됩니다.
+        const CalendarView = ({ data, onDayClick, currentTime }) => {
+            const [viewDate] = useState(new Date(2025, 11, 1)); // 12월 기준 예시
+            return (
+                <div className="p-6 space-y-6">
+                    <div className="flex justify-center items-center gap-4 text-xs font-bold uppercase mb-4">
+                        <span className="opacity-20">Nov 2025</span>
+                        <span className="text-lg text-[#8D6E63]">December 2025</span>
+                        <span className="opacity-20">Jan 2026</span>
+                    </div>
+                    <div className="ddb-card p-6">
+                        <div className="calendar-grid">
+                            {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d=><div key={d} className="text-[10px] text-[#D7CCC8] font-bold text-center mb-4 uppercase">{d}</div>)}
+                            {Array.from({length: 31}, (_, i) => i + 1).map(d => {
+                                const current = new Date(2025, 11, d);
+                                const l = data.letters.find(lettr => new Date(lettr.date).toDateString() === current.toDateString());
+                                const tracker = data.trackers.find(t => new Date(t.date).toDateString() === current.toDateString());
+                                const isDelivered = l ? new Date(currentTime) >= new Date(l.deliverAt) : false;
+                                return (
+                                    <div key={d} onClick={() => onDayClick({ dateStr: `12월 ${d}일`, letter: l, tracker })} className={`aspect-square flex items-center justify-center text-sm font-bold relative cursor-pointer ${d === 26 ? 'bg-gray-100 rounded-xl' : ''}`}>
+                                        <span className="z-10">{d}</span>
+                                        {l && isDelivered && <img src={l.stampImg} className="absolute inset-0 w-full h-full object-contain p-1 opacity-80" />}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const DailyPopup = ({ data, characterName, onClose }) => (
+            <div className="guide-overlay" onClick={onClose}>
+                <div className="bg-[#F7F4EB] w-full max-w-[400px] h-[80vh] rounded-[40px] p-8 overflow-y-auto space-y-6" onClick={e=>e.stopPropagation()}>
+                    <div className="flex justify-between items-center"><h2 className="text-xl font-bold text-[#8D7B71]">{data.dateStr}</h2><button onClick={onClose} className="text-2xl text-[#A1887F]">&times;</button></div>
+                    {data.tracker && (
+                        <div className="ddb-card space-y-2 text-sm">
+                            <h3 className="font-bold opacity-30 text-[10px] uppercase mb-2">Daily Tracker</h3>
+                            <div className="grid grid-cols-2 gap-2"><span>기분: {data.tracker.mood}</span><span>수면: {data.tracker.sleep}h</span></div>
+                        </div>
+                    )}
+                    {data.letter ? (
+                        <div className="space-y-4">
+                            <div className="ddb-card space-y-2"><h3 className="text-[10px] opacity-40 uppercase">My Letter</h3><p className="text-sm leading-relaxed">{data.letter.content}</p></div>
+                            <div className="ddb-card space-y-2 bg-[#fffdf9]">
+                                <div className="flex justify-between items-center"><h3 className="text-[10px] text-[#8D6E63] uppercase">{characterName}'s Reply</h3><img src={data.letter.stampImg} className="w-12 h-12 object-contain" /></div>
+                                <p className="text-[15px] italic leading-relaxed">"{data.letter.reply}"</p>
+                            </div>
+                        </div>
+                    ) : <p className="text-center py-10 opacity-20 text-sm">기록된 편지가 없습니다.</p>}
+                </div>
+            </div>
+        );
+
+        const FortuneView = ({ user, settings, data, loadData, callAI }) => {
+            const [loading, setLoading] = useState(false);
+            const getF = async () => {
+                setLoading(true);
+                const res = await callAI(settings.persona, "내 오늘 운세를 점쳐줘.", "[특수 지시: 결과는 반드시 3문장 내외로 캐릭터 어투를 담아 짧게 답하세요.]");
+                await db.collection('users').doc(user.uid).collection('fortunes').add({content: res, date: new Date().toISOString()});
+                loadData(user.uid); setLoading(false);
+            };
+            return (
+                <div className="p-6 space-y-6 text-center h-full flex flex-col items-center">
+                    <h2 className="text-2xl font-bold text-[#8D6E63] mt-10 font-serif">🔮 오늘의 운세</h2>
+                    {data.fortunes[0] ? (
+                        <div className="ddb-card text-left text-sm whitespace-pre-wrap w-full">{data.fortunes[0].content}<button onClick={getF} className="w-full text-[#8D6E63] font-bold mt-10 pt-6 border-t text-xs">다시 점치기</button></div>
+                    ) : <button onClick={getF} disabled={loading} className="bg-[#8D6E63] text-white w-40 h-40 rounded-full shadow-2xl font-bold text-xl mt-20">{loading ? "..." : "점치기"}</button>}
+                </div>
+            );
+        };
+
+        const SettingsView = ({ user, settings, setSettings, onSave }) => {
+            const save = async () => { await db.collection('users').doc(user.uid).set({ settings }, { merge: true }); alert("설정이 저장되었습니다!"); onSave(); };
+            return (
+                <div className="p-6 space-y-6">
+                    <h2 className="text-xl font-bold text-center text-[#8D6E63] font-serif">환경 설정</h2>
+                    <div className="ddb-card space-y-6">
+                        <div className="flex flex-col items-center gap-4"><img src={settings.profileImg || 'https://via.placeholder.com/100'} className="w-20 h-20 rounded-full border-2 border-[#8D6E6322] object-cover" /><input type="file" onChange={e=>{const r=new FileReader(); r.onloadend=()=>setSettings({...settings, profileImg:r.result}); r.readAsDataURL(e.target.files[0])}} className="text-[10px]" /></div>
+                        <input className="w-full p-3 border-b outline-none text-sm" placeholder="내 이름" value={settings.userName} onChange={e=>setSettings({...settings, userName:e.target.value})} />
+                        <input className="w-full p-3 border-b outline-none text-sm" placeholder="캐릭터 이름" value={settings.characterName} onChange={e=>setSettings({...settings, characterName:e.target.value})} />
+                        <input className="w-full p-3 border-b outline-none text-sm" type="password" placeholder="OpenAI API Key" value={settings.apiKey} onChange={e=>setSettings({...settings, apiKey:e.target.value})} />
+                        <textarea className="w-full p-4 border rounded-[20px] h-32 text-xs leading-relaxed" placeholder="AI 성격과 말투" value={settings.persona} onChange={e=>setSettings({...settings, persona:e.target.value})} />
+                        <button onClick={save} className="w-full bg-[#8D6E63] text-white py-4 rounded-2xl font-bold shadow-md">설정 저장</button>
+                    </div>
+                </div>
+            );
+        };
+
+        ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+    </script>
+</body>
+</html>
