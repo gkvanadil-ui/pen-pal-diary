@@ -17,21 +17,36 @@
         @import url('https://fonts.googleapis.com/css2?family=Gowun+Dodum&display=swap');
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         body { font-family: 'Gowun Dodum', sans-serif; background-color: #F7F4EB; margin: 0; color: #5D4037; overflow: hidden; }
+        
         .app-shell { width: 100%; max-width: 480px; height: 100dvh; display: flex; flex-direction: column; margin: 0 auto; background-color: #F7F4EB; position: relative; box-shadow: 0 0 20px rgba(0,0,0,0.1); overflow: hidden; }
         .main-content { flex: 1; overflow-y: auto; padding-bottom: 120px; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
         .main-content::-webkit-scrollbar { display: none; }
+
         .bottom-nav { position: absolute; bottom: 0; width: 100%; height: calc(80px + env(safe-area-inset-bottom)); background: white; display: flex; justify-content: space-around; align-items: flex-start; padding-top: 15px; border-top: 1px solid #eee; z-index: 100; padding-bottom: env(safe-area-inset-bottom); }
-        .ddb-card { background: white; border-radius: 28px; padding: 22px; box-shadow: 0 4px 15px rgba(141, 110, 99, 0.06); width: 100%; }
-        .lined-paper { background-image: linear-gradient(transparent 39px, rgba(141, 110, 99, 0.1) 40px); background-size: 100% 40px; line-height: 40px; border: none; resize: none; width: 100%; height: 100%; min-height: 380px; font-size: 19px; outline: none; background-color: transparent; }
+        .ddb-card { background: white; border-radius: 28px; padding: 20px; box-shadow: 0 4px 15px rgba(141, 110, 99, 0.06); width: 100%; }
+        
+        .lined-paper { 
+            background-image: linear-gradient(transparent 34px, rgba(141, 110, 99, 0.1) 35px); 
+            background-size: 100% 35px; 
+            line-height: 35px; 
+            border: none; resize: none; width: 100%; height: 100%; min-height: 380px; 
+            font-size: 17px; outline: none; background-color: transparent; 
+        }
+
         .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
-        .calendar-day { aspect-ratio: 1/1; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 13px; position: relative; background: #fff; cursor: pointer; }
+        .calendar-day { aspect-ratio: 1/1; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 12px; position: relative; background: #fff; cursor: pointer; }
         .calendar-day.selected { border: 2px solid #8D6E63; background: #fdfaf3; }
         .day-number { z-index: 10; font-weight: 800; color: #5D4037; text-shadow: -1.5px -1.5px 0 #fff, 1.5px -1.5px 0 #fff, -1.5px 1.5px 0 #fff, 1.5px 1.5px 0 #fff; }
         .stamp-img { width: 90%; height: 90%; object-fit: contain; position: absolute; z-index: 1; }
-        .step-btn { padding: 6px 10px; border-radius: 10px; border: 1px solid #eee; font-size: 11px; transition: 0.2s; background: #fcfcfc; color: #999; }
-        .step-btn.active { background: #8D6E63; color: white; border-color: #8D6E63; font-weight: bold; }
+        
+        .step-btn { padding: 6px 2px; border-radius: 10px; border: 1px solid #eee; font-size: 9px; transition: 0.2s; background: #fcfcfc; color: #999; text-align: center; }
+        .step-btn.active { background: #8D6E63; color: white; border-color: #8D6E63; font-weight: bold; transform: scale(1.05); }
+
         .guide-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.7); z-index: 200; display: flex; align-items: center; justify-content: center; padding: 20px; }
-        .letter-text { font-size: 1rem; line-height: 1.8; word-break: keep-all; }
+        .letter-text { font-size: 0.95rem; line-height: 1.7; word-break: keep-all; }
+        
+        .fade-in { animation: fadeIn 0.4s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
     </style>
 </head>
 <body>
@@ -54,8 +69,7 @@
         const auth = firebase.auth();
         const db = firebase.firestore();
 
-        const STAMP_BASE_URL = "stamps/"; 
-        const STAMP_LIST = Array.from({ length: 118 }, (_, i) => `${STAMP_BASE_URL}stamp_${String(i + 1).padStart(5, '0')}.png`);
+        const STAMP_LIST = Array.from({ length: 118 }, (_, i) => `stamps/stamp_${String(i + 1).padStart(5, '0')}.png`);
         const STEP_TITLES = {
             mood: ["최악", "우울", "보통", "좋음", "최상"],
             condition: ["피곤", "무거움", "보통", "가뿐", "최상"],
@@ -76,7 +90,7 @@
             const [data, setData] = useState({ letters: [], trackers: [], fortunes: [] });
             const [weatherInfo, setWeatherInfo] = useState({ temp: "--", desc: "날씨 확인중" });
             const [settings, setSettings] = useState({ 
-                userName: '나의 이름', characterName: '캐릭터 이름', apiKey: '', persona: '', profileImg: '',
+                userName: '나의 이름', characterName: '히요리', apiKey: '', persona: '', profileImg: '',
                 replyMode: '바로', fixedDelay: 0, randomMin: 5, randomMax: 30, hasSeenGuide: false
             });
             const [showGuide, setShowGuide] = useState(false);
@@ -120,17 +134,23 @@
                 return unsubAuth;
             }, [fetchWeather]);
 
-            const callAI = async (msg, instruction = "") => {
+            // ✅ 모델을 gpt-4o-mini로 변경
+            const callAI = async (msg, instruction = "", base64Image = null) => {
                 if(!settings.apiKey) return "API 키를 등록해주세요.";
                 try {
+                    let userContent = [{ type: "text", text: msg }];
+                    if (base64Image) {
+                        userContent.push({ type: "image_url", image_url: { url: base64Image } });
+                    }
+
                     const res = await fetch("https://api.openai.com/v1/chat/completions", {
                         method: "POST",
                         headers: { "Authorization": `Bearer ${settings.apiKey}`, "Content-Type": "application/json" },
                         body: JSON.stringify({ 
-                            model: "gpt-4o", 
+                            model: "gpt-4o-mini", 
                             messages: [
-                                { role: "system", content: `당신은 ${settings.characterName}입니다. [페르소나]: ${settings.persona}. [절대지시]: 따옴표('', "")를 절대 사용하지 마세요. 답변은 구체적이고 정성을 담아 작성하세요. AI처럼 말하지 말고 캐릭터 그 자체가 되어 발화하세요. ${instruction}` },
-                                { role: "user", content: msg }
+                                { role: "system", content: `당신은 ${settings.characterName}입니다. [페르소나]: ${settings.persona}. [절대지시]: 따옴표('', "")를 절대 사용하지 마세요. 답변은 구체적이고 정성을 담아 작성하세요. 가독성을 위해 문단 사이에 반드시 빈 줄을 삽입하세요. ${instruction}` },
+                                { role: "user", content: userContent }
                             ]
                         })
                     });
@@ -139,7 +159,6 @@
                 } catch(e) { return "통신 실패.."; }
             };
 
-            // ✅ 어제의 기록 브리핑 및 조언 (캐릭터 페르소나 적용)
             useEffect(() => {
                 if (user && activeTab === 'today') {
                     const generateDailyBrief = async () => {
@@ -163,12 +182,7 @@
                 }
             }, [user, activeTab, data.trackers, weatherInfo.desc]);
 
-            if (!user) return (
-                <div className="app-shell items-center justify-center p-10 text-center">
-                    <h1 className="text-4xl font-bold text-[#8D6E63] mb-8 font-serif">DIRI-Penpal</h1>
-                    <button onClick={() => auth.signInWithPopup(new firebase.auth.GoogleAuthProvider())} className="w-full bg-white border py-4 rounded-3xl flex items-center justify-center gap-3 shadow-md">구글 로그인</button>
-                </div>
-            );
+            if (!user) return <div className="app-shell items-center justify-center p-10 text-center"><h1 className="text-4xl font-bold text-[#8D6E63] mb-8 font-serif">DIRI-Penpal</h1><button onClick={() => auth.signInWithPopup(new firebase.auth.GoogleAuthProvider())} className="w-full bg-white border py-4 rounded-3xl flex items-center justify-center gap-3 shadow-md">구글 로그인</button></div>;
 
             return (
                 <div className="app-shell">
@@ -205,7 +219,6 @@
         const Dashboard = ({ data, settings, advice, setAdvice, callAI, weather, briefing }) => {
             const lastL = data.letters[0];
             const isDelivered = lastL ? new Date() >= new Date(lastL.deliverAt) : true;
-            
             const replyPreview = useMemo(() => {
                 if (!lastL || !isDelivered || !lastL.reply) return "오늘도 만나서 반가워! 편지 기다릴게.";
                 return truncateStr(lastL.reply, 50);
@@ -213,39 +226,26 @@
 
             return (
                 <div className="p-6 space-y-6 animate-in fade-in duration-500">
-                    {/* 1. 캐릭터 한마디 + 날씨 (프롬프트 반영) */}
                     <div className="ddb-card flex gap-4 items-start border-l-4 border-[#8D6E63]">
-                        <img src={settings.profileImg || 'https://via.placeholder.com/100'} className="w-14 h-14 rounded-full border-2 border-[#8D6E63] object-cover mt-1 shadow-sm" />
+                        <img src={settings.profileImg || 'https://via.placeholder.com/100'} className="w-14 h-14 rounded-full border-2 border-[#8D6E63] object-cover mt-1" />
                         <div className="flex-1 space-y-2">
-                            <h4 className="font-bold text-[#8D6E63]">{settings.characterName}</h4>
-                            <div className="text-sm bg-[#fdfaf3] p-3 rounded-xl italic leading-relaxed whitespace-pre-wrap font-medium">
-                                "{cleanStr(replyPreview)}"
-                            </div>
+                            <h4 className="font-bold text-[#8D6E63] text-sm">{settings.characterName}</h4>
+                            <div className="text-sm bg-[#fdfaf3] p-3 rounded-xl italic leading-relaxed whitespace-pre-wrap">"{cleanStr(replyPreview)}"</div>
                             <p className="text-[11px] opacity-60 font-bold">현재 날씨: {weather.desc} ({weather.temp}°C)</p>
                         </div>
                     </div>
-
-                    {/* 2. 어제의 기록 브리핑 (캐릭터 프롬프트 반영 - 3문장) */}
                     <div className="ddb-card bg-gray-50 border border-gray-100 p-4 shadow-sm">
                         <h5 className="text-[11px] font-bold text-[#8D6E63] uppercase tracking-widest mb-2 font-serif">Yesterday Briefing 📝</h5>
-                        <p className="text-sm leading-relaxed text-gray-600">"{cleanStr(briefing)}"</p>
+                        <p className="text-sm leading-relaxed text-gray-600 italic">"{cleanStr(briefing)}"</p>
                     </div>
-
-                    {/* 3. 캐릭터의 조언 (캐릭터 프롬프트 반영) */}
                     <div className="p-6 bg-[#EFEBE9] rounded-[28px] space-y-3 shadow-sm">
                         <h5 className="text-[#8D6E63] font-bold text-xs"><i className="fa-solid fa-lightbulb"></i> {settings.characterName}의 조언</h5>
-                        <p className="text-sm italic font-medium whitespace-pre-wrap leading-relaxed">
-                            "{cleanStr(advice)}"
-                        </p>
-                        <button onClick={async ()=>{setAdvice("생각 중.."); setAdvice(await callAI(`현재 날씨(${weather.desc})에 맞춰서 네 말투로 아주 짧은 조언 한마디 해줘.`));}} className="text-[10px] text-white bg-[#8D6E63] px-4 py-1.5 rounded-full shadow-sm active:scale-95 transition">새로고침</button>
+                        <p className="text-sm italic font-medium whitespace-pre-wrap leading-relaxed">"{cleanStr(advice)}"</p>
+                        <button onClick={async ()=>{setAdvice("생각 중.."); setAdvice(await callAI(`오늘 날씨는 ${weather.desc}야. 네 말투로 짧은 조언 한마디 해줘.`));}} className="text-[10px] text-white bg-[#8D6E63] px-4 py-1.5 rounded-full shadow-sm active:scale-95 transition">새로고침</button>
                     </div>
-
-                    {/* 4. 오늘의 운세 (캐릭터 프롬프트 반영) */}
                     <div className="ddb-card border border-purple-50">
                         <h5 className="text-purple-500 font-bold text-xs mb-2 uppercase tracking-widest font-serif">Today's Fortune ✨</h5>
-                        <p className="text-sm leading-relaxed whitespace-pre-wrap">
-                            {truncateStr(data.fortunes[0]?.content || "아직 운세가 없어! 아래 탭을 눌러봐.", 50)}
-                        </p>
+                        <p className="text-sm leading-relaxed whitespace-pre-wrap">{truncateStr(cleanStr(data.fortunes[0]?.content || "아직 운세가 없어!"), 50)}</p>
                     </div>
                 </div>
             );
@@ -254,7 +254,7 @@
         const TrackerWrite = ({ user, trackers }) => {
             const [form, setForm] = useState({ sleep: 7, mood: 3, condition: 3, exercise: 1, weather: 3 });
             const [showHistory, setShowHistory] = useState(false);
-            const save = async () => { await db.collection('users').doc(user.uid).collection('trackers').add({...form, date: new Date().toISOString()}); alert("기록되었습니다!"); };
+            const save = async () => { await db.collection('users').doc(user.uid).collection('trackers').add({...form, date: new Date().toISOString()}); alert("저장되었습니다!"); };
             return (
                 <div className="p-6 space-y-6">
                     <h2 className="text-lg font-bold text-center text-[#8D6E63] mt-4 font-serif">오늘의 기록</h2>
@@ -269,12 +269,14 @@
                                 ))}
                                 <div className="pt-2"><div className="flex justify-between text-[11px] font-bold mb-2 px-1"><span>🌙 수면 시간</span><span className="font-bold text-[#8D6E63]">{form.sleep}h</span></div><input type="range" min="0" max="12" step="0.5" className="w-full accent-[#8D6E63]" value={form.sleep} onChange={e=>setForm({...form, sleep: e.target.value})} /></div>
                             </div>
-                            <button onClick={save} className="w-full bg-[#8D6E63] text-white py-4 rounded-2xl font-bold shadow-lg text-sm active:scale-95 transition">기록 저장하기</button>
-                            <button onClick={()=>setShowHistory(true)} className="w-full bg-white border border-[#8D6E6333] text-[#8D6E63] py-4 rounded-2xl font-bold text-sm">기록 모아보기</button>
+                            <div className="space-y-3">
+                                <button onClick={save} className="w-full bg-[#8D6E63] text-white py-4 rounded-2xl font-bold shadow-lg text-sm active:scale-95 transition">기록 저장하기</button>
+                                <button onClick={()=>setShowHistory(true)} className="w-full bg-white border border-[#8D6E6333] text-[#8D6E63] py-4 rounded-2xl font-bold text-sm">기록 모아보기</button>
+                            </div>
                         </div>
                     ) : (
                         <div className="space-y-4 fade-in">
-                            <button onClick={()=>setShowHistory(false)} className="text-xs opacity-50 mb-2 font-bold"><i className="fa-solid fa-arrow-left mr-1"></i>기록하기로 돌아가기</button>
+                            <button onClick={()=>setShowHistory(false)} className="text-xs opacity-50 mb-2 font-bold"><i className="fa-solid fa-arrow-left mr-1"></i>돌아가기</button>
                             {trackers.map(t => (
                                 <div key={t.id} className="bg-white p-4 rounded-2xl shadow-sm border-l-4 border-blue-200 text-[11px]">
                                     <p className="font-bold opacity-40 mb-1">{new Date(t.date).toLocaleDateString()}</p>
@@ -296,12 +298,18 @@
                 if(!text.trim() || !settings.apiKey) return alert("내용 또는 API 키를 확인해줘!");
                 setLoading(true);
                 const stampImg = STAMP_LIST[Math.floor(Math.random() * STAMP_LIST.length)];
-                let delay = settings.replyMode === 'n분후' ? parseInt(settings.fixedDelay) : settings.replyMode === '랜덤' ? Math.floor(Math.random()*(parseInt(settings.randomMax)-parseInt(settings.randomMin)+1))+parseInt(settings.randomMin) : 0;
-                const deliverAt = new Date(new Date().getTime() + delay * 60000).toISOString();
+                let delayMinutes = 0;
+                if(settings.replyMode === 'n분후') delayMinutes = parseInt(settings.fixedDelay) || 0;
+                else if(settings.replyMode === '랜덤') {
+                    const min = parseInt(settings.randomMin) || 5;
+                    const max = parseInt(settings.randomMax) || 30;
+                    delayMinutes = Math.floor(Math.random() * (max - min + 1)) + min;
+                }
+                const deliverAt = new Date(new Date().getTime() + delayMinutes * 60000).toISOString();
                 const docRef = await db.collection('users').doc(user.uid).collection('letters').add({ content: text, reply: "", date: new Date().toISOString(), deliverAt, stampImg, attachedImg: image });
                 alert("편지를 보냈어!"); setText(''); setImage(null);
                 try {
-                    const aiReply = await callAI(text, "\n[절대지시: 네 페르소나를 완벽히 연기하며 아주 정성스럽고 길게 답장하세요]");
+                    const aiReply = await callAI(text, "\n[절대지시: 아주 정성스럽고 길게 답장하세요. 문단별 빈 줄 삽입 필수]", image);
                     await docRef.update({ reply: aiReply });
                 } catch(e) {}
                 setLoading(false);
@@ -311,8 +319,8 @@
                 <div className="p-6 h-full flex flex-col">
                     <div className="flex gap-2 mb-4"><label className="bg-white px-3 py-1.5 rounded-full shadow-sm text-[10px] text-gray-400 font-bold flex items-center gap-2 cursor-pointer border border-gray-50"><i className="fa-solid fa-camera"></i> {image ? "사진 추가됨" : "사진 추가"}<input type="file" className="hidden" accept="image/*" onChange={e => { const r = new FileReader(); r.onloadend = () => setImage(r.result); r.readAsDataURL(e.target.files[0]); }} /></label></div>
                     <h2 className="text-center font-bold text-[#8D6E63] mb-4 text-base font-serif">To. {settings.characterName}</h2>
-                    <div className="flex-1 bg-white rounded-[32px] p-8 shadow-sm border border-[#8D6E6311]"><textarea className="lined-paper focus:outline-none" value={text} onChange={e=>setText(e.target.value)} placeholder="마음을 전해봐!" /></div>
-                    <button onClick={send} disabled={loading} className="w-full bg-[#8D6E63] text-white py-4 rounded-[24px] font-bold shadow-lg mt-6 active:scale-95 transition">{loading ? "전송 중..." : "편지 보내기"}</button>
+                    <div className="flex-1 bg-white rounded-[32px] p-6 shadow-sm border border-[#8D6E6311]"><textarea className="lined-paper focus:outline-none" value={text} onChange={e=>setText(e.target.value)} placeholder="마음을 전해봐.." /></div>
+                    <button onClick={send} disabled={loading} className="w-full bg-[#8D6E63] text-white py-4 rounded-[24px] font-bold shadow-lg mt-5 text-sm active:scale-95 transition">{loading ? "전송 중..." : "편지 보내기"}</button>
                 </div>
             );
         };
@@ -344,11 +352,11 @@
                     </div></div>
                     <div className="space-y-3 pb-4">
                         {combinedList.map(item => (
-                            <div key={item.id} className={`bg-white p-3 rounded-2xl shadow-sm border-l-4 ${item.type==='letter'?'border-[#8D6E63]':'border-blue-200'} flex justify-between items-center animate-in slide-in-from-bottom-2 duration-300`}>
+                            <div key={item.id} className={`bg-white p-3 rounded-2xl shadow-sm border-l-4 ${item.type==='letter'?'border-[#8D6E63]':'border-blue-200'} flex justify-between items-center animate-in slide-in-from-bottom-2`}>
                                 <div onClick={()=>item.type==='letter' && onLetterClick(item)} className="flex-1 truncate text-[11px] font-medium">
                                     {item.type === 'letter' ? `✉️ ${cleanStr(item.reply) || "답장 대기중.."}` : `📝 건강 기록: 기분 ${STEP_TITLES.mood[item.mood-1]}, 수면 ${item.sleep}h`}
                                 </div>
-                                <button onClick={()=>onDelete(item.id, item.type)} className="text-red-100 p-2"><i className="fa-solid fa-trash-can"></i></button>
+                                <button onClick={()=>onDelete(item.id, item.type)} className="text-red-100 p-1 text-[10px]"><i className="fa-solid fa-trash-can"></i></button>
                             </div>
                         ))}
                     </div>
@@ -365,10 +373,10 @@
             };
             return (
                 <div className="guide-overlay" style={{background:'#F7F4EB', padding:0}}><div className="p-6 space-y-6 w-full h-full overflow-y-auto">
-                    <div className="flex justify-between items-center"><button onClick={onClose} className="font-bold text-[#8D6E63] p-2 text-xs"><i className="fa-solid fa-arrow-left"></i> 뒤로가기</button><button onClick={saveAsImage} className="text-[10px] bg-[#8D6E63] text-white px-3 py-1.5 rounded-full shadow-md active:scale-95 transition">이미지로 저장</button></div>
+                    <div className="flex justify-between items-center"><button onClick={onClose} className="font-bold text-[#8D6E63] p-2 text-xs"><i className="fa-solid fa-arrow-left"></i> 뒤로가기</button><button onClick={saveAsImage} className="text-[10px] bg-[#8D6E63] text-white px-3 py-1.5 rounded-full shadow-md">이미지 저장</button></div>
                     <div ref={printRef} className="p-2 space-y-6 bg-[#F7F4EB]">
-                        <div className="ddb-card space-y-3"><h3 className="text-[9px] opacity-40 uppercase font-bold tracking-widest">My Letter</h3>{letter.attachedImg && <img src={letter.attachedImg} className="w-full rounded-2xl shadow-sm" />}<p className="letter-text whitespace-pre-wrap">{letter.content}</p></div>
-                        <div className="ddb-card space-y-4 bg-[#fffdf9] border border-orange-50 shadow-sm"><div className="flex justify-between items-start"><h3 className="text-[9px] text-[#8D6E63] uppercase font-bold tracking-widest">{characterName}'s Reply</h3><img src={letter.stampImg} className="w-16 h-16 object-contain rotate-6 drop-shadow-md" /></div><p className="letter-text italic text-[#5D4037] whitespace-pre-wrap font-medium">"{cleanStr(letter.reply) || '답장을 기다리는 중이야..'}"</p></div>
+                        <div className="ddb-card space-y-3"><h3 className="text-[9px] opacity-40 uppercase font-bold tracking-widest">My Letter</h3>{letter.attachedImg && <img src={letter.attachedImg} className="w-full rounded-2xl shadow-sm" />}<p className="letter-text whitespace-pre-wrap text-[16px]">{letter.content}</p></div>
+                        <div className="ddb-card space-y-4 bg-[#fffdf9] border border-orange-50 shadow-sm"><div className="flex justify-between items-start"><h3 className="text-[9px] text-[#8D6E63] uppercase font-bold tracking-widest">{characterName}'s Reply</h3><img src={letter.stampImg} className="w-14 h-14 object-contain rotate-6 drop-shadow-md" /></div><p className="letter-text italic text-[#5D4037] whitespace-pre-wrap font-medium text-[16px]">"{cleanStr(letter.reply) || '답장을 기다리는 중이야..'}"</p></div>
                     </div>
                 </div></div>
             );
@@ -378,13 +386,13 @@
             const [loading, setLoading] = useState(false);
             const getF = async () => {
                 setLoading(true);
-                const res = await callAI("내 오늘 운세를 점쳐줘. 아주 정성스럽고 다정하게! [지시: 네 페르소나를 200% 반영할 것]");
+                const res = await callAI("내 오늘 운세를 점쳐줘. 아주 정성스럽게! [지시: 따옴표 절대 금지, 문단 구분 필수]");
                 await db.collection('users').doc(user.uid).collection('fortunes').add({content: res, date: new Date().toISOString()});
                 setLoading(false);
             };
             return (
                 <div className="p-6 space-y-6 text-center h-full flex flex-col items-center">
-                    <h2 className="text-2xl font-bold text-[#8D6E63] mt-10 font-serif">🔮 오늘의 운세</h2>
+                    <h2 className="text-lg font-bold text-[#8D6E63] mt-10 font-serif">🔮 오늘의 운세</h2>
                     {data.fortunes[0] && new Date(data.fortunes[0].date).toDateString() === new Date().toDateString() ? (
                         <div className="ddb-card text-left text-xs leading-relaxed whitespace-pre-wrap w-full animate-in fade-in">{cleanStr(data.fortunes[0].content)}<button onClick={getF} className="w-full text-[#8D6E63] font-bold mt-10 pt-4 border-t text-[10px]">다시 점치기</button></div>
                     ) : <button onClick={getF} disabled={loading} className="bg-[#8D6E63] text-white w-32 h-32 rounded-full shadow-2xl font-bold text-lg mt-20 active:scale-95 transition">점치기</button>}
@@ -396,15 +404,25 @@
             const save = async () => { await db.collection('users').doc(user.uid).set({ settings }, { merge: true }); alert("설정이 저장되었습니다!"); onSave(); };
             return (
                 <div className="p-6 space-y-6">
-                    <h2 className="text-xl font-bold text-center text-[#8D6E63] font-serif uppercase tracking-widest uppercase">Settings</h2>
+                    <h2 className="text-lg font-bold text-center text-[#8D6E63] font-serif uppercase tracking-widest uppercase">Settings</h2>
                     <div className="ddb-card space-y-5">
-                        <div className="flex flex-col items-center gap-4">
-                            <img src={settings.profileImg || 'https://via.placeholder.com/100'} className="w-20 h-20 rounded-full border-2 border-[#8D6E6322] object-cover" />
-                            <input type="file" onChange={e => { const r = new FileReader(); r.onloadend = () => setSettings({...settings, profileImg: r.result}); r.readAsDataURL(e.target.files[0]); }} className="text-[10px]" />
+                        <div className="flex flex-col items-center gap-3">
+                            <img src={settings.profileImg || 'https://via.placeholder.com/100'} className="w-16 h-16 rounded-full border-2 border-[#8D6E6322] object-cover" />
+                            <input type="file" onChange={e => { const r = new FileReader(); r.onloadend = () => setSettings({...settings, profileImg: r.result}); r.readAsDataURL(e.target.files[0]); }} className="text-[9px]" />
                         </div>
-                        <div className="space-y-4"><input className="w-full p-2 border-b outline-none text-xs bg-transparent" placeholder="내 이름" value={settings.userName} onChange={e=>setSettings({...settings, userName:e.target.value})} /><input className="w-full p-2 border-b outline-none text-xs bg-transparent" placeholder="캐릭터 이름" value={settings.characterName} onChange={e=>setSettings({...settings, characterName:e.target.value})} /><input className="w-full p-2 border-b outline-none text-xs bg-transparent" type="password" placeholder="OpenAI API Key" value={settings.apiKey} onChange={e=>setSettings({...settings, apiKey:e.target.value})} /></div>
-                        <textarea className="w-full p-4 border rounded-[20px] h-32 text-xs leading-relaxed bg-transparent" placeholder="AI 성격과 말투" value={settings.persona} onChange={e=>setSettings({...settings, persona:e.target.value})} />
-                        <button onClick={save} className="w-full bg-[#8D6E63] text-white py-4 rounded-2xl font-bold shadow-md active:scale-95 transition">설정 저장</button>
+                        <div className="space-y-3">
+                            <input className="w-full p-2 border-b outline-none text-xs bg-transparent" placeholder="내 이름" value={settings.userName} onChange={e=>setSettings({...settings, userName:e.target.value})} />
+                            <input className="w-full p-2 border-b outline-none text-xs bg-transparent" placeholder="캐릭터 이름" value={settings.characterName} onChange={e=>setSettings({...settings, characterName:e.target.value})} />
+                            <input className="w-full p-2 border-b outline-none text-xs bg-transparent" type="password" placeholder="OpenAI API Key" value={settings.apiKey} onChange={e=>setSettings({...settings, apiKey:e.target.value})} />
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-[9px] font-bold opacity-40 uppercase font-bold">Reply Delay</label>
+                            <div className="flex gap-1">{['바로', 'n분후', '랜덤'].map(m => (<button key={m} onClick={()=>setSettings({...settings, replyMode: m})} className={`flex-1 py-1.5 rounded-lg text-[9px] ${settings.replyMode===m?'bg-[#8D6E63] text-white':'bg-gray-100 text-gray-400'}`}>{m}</button>))}</div>
+                            {settings.replyMode === 'n분후' && <input type="number" className="w-full p-2 border rounded-lg text-[10px]" placeholder="대기 시간(분)" value={settings.fixedDelay} onChange={e=>setSettings({...settings, fixedDelay:e.target.value})} />}
+                            {settings.replyMode === '랜덤' && <div className="flex gap-2 items-center"><input type="number" className="w-1/2 p-2 border rounded-lg text-[10px]" placeholder="최소(분)" value={settings.randomMin} onChange={e=>setSettings({...settings, randomMin:e.target.value})} /><span>~</span><input type="number" className="w-1/2 p-2 border rounded-lg text-[10px]" placeholder="최대(분)" value={settings.randomMax} onChange={e=>setSettings({...settings, randomMax:e.target.value})} /></div>}
+                        </div>
+                        <textarea className="w-full p-3 border rounded-[20px] h-28 text-[11px] leading-relaxed bg-transparent" placeholder="AI 성격과 말투" value={settings.persona} onChange={e=>setSettings({...settings, persona:e.target.value})} />
+                        <button onClick={save} className="w-full bg-[#8D6E63] text-white py-3 rounded-2xl font-bold shadow-md active:scale-95 transition text-xs">설정 저장</button>
                     </div>
                 </div>
             );
@@ -412,10 +430,6 @@
 
         const NavBtn = ({ icon, label, active, onClick }) => (
             <button onClick={onClick} className={`flex flex-col items-center gap-1 transition-all ${active ? 'text-[#8D6E63] scale-105 font-bold' : 'text-gray-300'}`}><i className={`fa-solid ${icon} text-lg`}></i><span className="text-[10px] uppercase">{label}</span></button>
-        );
-
-        const GuidePage = ({ onFinish }) => (
-            <div className="guide-overlay"><div className="bg-white w-full max-w-[340px] rounded-[32px] p-8 space-y-6 text-center"><h2 className="text-2xl font-bold text-[#8D6E63]">안녕! 💌</h2><p className="text-sm leading-relaxed text-gray-500">나만의 AI 친구와 비밀 편지를 주고받는 다이어리예요.</p><button onClick={onFinish} className="w-full bg-[#8D6E63] text-white py-4 rounded-2xl font-bold shadow-lg">시작하기</button></div></div>
         );
 
         ReactDOM.createRoot(document.getElementById('root')).render(<App />);
