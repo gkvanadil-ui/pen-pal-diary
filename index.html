@@ -12,117 +12,55 @@
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Gowun+Dodum&display=swap');
-        body { font-family: 'Gowun Dodum', sans-serif; background-color: #F7F4EB; }
-        .lined-paper { background-image: linear-gradient(transparent 33px, rgba(141, 110, 99, 0.2) 34px); background-size: 100% 34px; line-height: 34px; }
-        .tab-bar { position: fixed; bottom: 0; width: 100%; max-width: 480px; background: white; display: flex; justify-content: space-around; padding: 12px 0; border-top: 1px solid #eee; }
-    </style>
 </head>
-<body class="flex justify-center">
-    <div id="root" class="w-full max-w-[480px] min-h-screen bg-[#F7F4EB] shadow-xl relative pb-20"></div>
+<body class="bg-[#F7F4EB] flex justify-center">
+    <div id="root" class="w-full max-w-[480px] min-h-screen relative"></div>
 
     <script type="text/babel">
         const { useState, useEffect } = React;
 
-        // FIXME: Firebase 콘솔에서 발급받은 본인의 설정값으로 교체하세요!
+        // ✅ 토마토님의 Firebase 설정값 (정확히 입력됨)
         const firebaseConfig = {
-            apiKey: "본인의_API_KEY",
-            authDomain: "본인의_PROJECT_ID.firebaseapp.com",
-            projectId: "본인의_PROJECT_ID",
-            storageBucket: "본인의_PROJECT_ID.appspot.com",
-            messagingSenderId: "...",
-            appId: "..."
+            apiKey: "AIzaSyBhgHe856C8jJUsW_3gjJSOO3mlQXDee-c",
+            authDomain: "diri-penpal-diary.firebaseapp.com",
+            projectId: "diri-penpal-diary",
+            storageBucket: "diri-penpal-diary.firebasestorage.app",
+            messagingSenderId: "587612499384",
+            appId: "1:587612499384:web:8c1f491372cb112050334d",
+            measurementId: "G-G6WCPQ14BD"
         };
         
-        if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+        firebase.initializeApp(firebaseConfig);
         const auth = firebase.auth();
-        const db = firebase.firestore();
 
         const App = () => {
             const [user, setUser] = useState(null);
-            const [activeTab, setActiveTab] = useState('today');
-            const [letters, setLetters] = useState([]);
-            const [settings, setSettings] = useState({ userName: '', characterName: '', apiKey: '', persona: '' });
 
             useEffect(() => {
-                auth.onAuthStateChanged(async (u) => {
-                    if (u) {
-                        setUser(u);
-                        const doc = await db.collection('users').doc(u.uid).get();
-                        if (doc.exists) {
-                            setSettings(doc.data().settings || {});
-                            loadLetters(u.uid);
-                        } else {
-                            setActiveTab('settings');
-                        }
-                    } else {
-                        setUser(null);
-                    }
-                });
+                auth.onAuthStateChanged((u) => setUser(u));
             }, []);
-
-            const loadLetters = async (uid) => {
-                const snapshot = await db.collection('users').doc(uid).collection('letters').orderBy('date', 'desc').get();
-                setLetters(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-            };
 
             const googleLogin = () => {
                 const provider = new firebase.auth.GoogleAuthProvider();
-                auth.signInWithPopup(provider);
+                // 팝업 창이 닫히는 이유를 잡기 위해 alert 추가
+                auth.signInWithPopup(provider)
+                    .then(() => alert("로그인 성공!"))
+                    .catch((error) => {
+                        // 여기서 범인이 나옵니다!
+                        alert("🚨 로그인 에러 발생!\n코드: " + error.code + "\n메시지: " + error.message);
+                        console.error(error);
+                    });
             };
 
-            const saveSettings = async () => {
-                if (!user) return alert("로그인이 필요합니다.");
-                try {
-                    await db.collection('users').doc(user.uid).set({ settings }, { merge: true });
-                    alert("설정이 구글 계정에 안전하게 저장되었습니다.");
-                    setActiveTab('today'); // 저장 후 다음 화면(오늘 탭)으로 이동
-                } catch (e) { alert("저장 실패: " + e.message); }
-            };
-
-            if (!user) {
-                return (
-                    <div className="flex flex-col items-center justify-center h-screen p-10 text-center">
-                        <h1 className="text-3xl font-bold text-[#8D6E63] mb-4">DIRI-Penpal Diary</h1>
-                        <button onClick={googleLogin} className="bg-white border p-4 rounded-2xl flex items-center gap-3 shadow-sm active:scale-95 transition">
-                            <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" width="20"/>
-                            구글 계정으로 시작하기
-                        </button>
-                    </div>
-                );
-            }
-
-            return (
-                <div>
-                    {activeTab === 'today' && <div className="p-6 space-y-6 text-center">
-                        <h2 className="text-2xl font-bold text-[#8D6E63]">오늘의 인사</h2>
-                        <div className="bg-white p-6 rounded-3xl shadow-sm text-left">
-                            <h3 className="font-bold">{settings.characterName || '친구'}</h3>
-                            <p className="mt-2 text-gray-600">{letters[0]?.reply || "기다리고 있을게, 편지 써줄래?"}</p>
-                        </div>
-                    </div>}
-
-                    {activeTab === 'settings' && (
-                        <div className="p-6 space-y-4">
-                            <h2 className="text-xl font-bold text-center">설정 (DIRI-Penpal)</h2>
-                            <div className="bg-white p-6 rounded-3xl space-y-4">
-                                <input className="w-full p-3 border rounded-xl" placeholder="나의 이름" value={settings.userName} onChange={e=>setSettings({...settings, userName:e.target.value})} />
-                                <input className="w-full p-3 border rounded-xl" placeholder="캐릭터 이름" value={settings.characterName} onChange={e=>setSettings({...settings, characterName:e.target.value})} />
-                                <input className="w-full p-3 border rounded-xl" type="password" placeholder="OpenAI API Key" value={settings.apiKey} onChange={e=>setSettings({...settings, apiKey:e.target.value})} />
-                                <textarea className="w-full p-3 border rounded-xl h-32" placeholder="페르소나" value={settings.persona} onChange={e=>setSettings({...settings, persona:e.target.value})} />
-                                <button onClick={saveSettings} className="w-full bg-[#8D6E63] text-white py-4 rounded-xl font-bold">저장하고 시작하기</button>
-                            </div>
-                        </div>
-                    )}
-
-                    <div className="tab-bar">
-                        <button onClick={()=>setActiveTab('today')} className={activeTab==='today'?'text-[#8D6E63]':'text-gray-300'}><i className="fa-solid fa-house"></i></button>
-                        <button onClick={()=>setActiveTab('settings')} className={activeTab==='settings'?'text-[#8D6E63]':'text-gray-300'}><i className="fa-solid fa-gear"></i></button>
-                        <button onClick={()=>auth.signOut()} className="text-red-300"><i className="fa-solid fa-right-from-bracket"></i></button>
-                    </div>
+            if (!user) return (
+                <div className="flex flex-col items-center justify-center h-screen">
+                    <button onClick={googleLogin} className="bg-white border p-4 rounded-2xl shadow-md">
+                        구글 로그인 시도하기
+                    </button>
                 </div>
             );
+
+            return <div className="p-10 text-center">로그인 완료: {user.email}</div>;
         };
 
         ReactDOM.createRoot(document.getElementById('root')).render(<App />);
