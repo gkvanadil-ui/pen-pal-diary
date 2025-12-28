@@ -24,7 +24,7 @@
             overflow: hidden; 
         }
 
-        /* 📱 모바일 UI 깨짐 방지: dvh 적용 */
+        /* 📱 모바일 UI 깨짐 방지: dvh 및 max-width 고정 */
         .app-shell { 
             width: 100%; 
             max-width: 480px; 
@@ -71,7 +71,7 @@
             resize: none; 
             width: 100%; 
             height: 100%; 
-            min-height: 400px;
+            min-height: 380px;
             font-size: 18px; 
             outline: none;
             background-color: transparent;
@@ -104,6 +104,7 @@
         const auth = firebase.auth();
         const db = firebase.firestore();
 
+        // ✅ 이미지 경로 설정
         const STAMP_BASE_URL = "stamps/"; 
         const STAMP_LIST = Array.from({ length: 118 }, (_, i) => {
             const num = String(i + 1).padStart(5, '0');
@@ -145,9 +146,9 @@
                         setUser(u);
                         const doc = await db.collection('users').doc(u.uid).get();
                         if (doc.exists) {
-                            const savedSettings = doc.data().settings;
-                            setSettings(prev => ({...prev, ...savedSettings}));
-                            if (!savedSettings.hasSeenGuide) setShowGuide(true);
+                            const saved = doc.data().settings;
+                            setSettings(prev => ({...prev, ...saved}));
+                            if (!saved.hasSeenGuide) setShowGuide(true);
                         } else {
                             setActiveTab('settings');
                             setShowGuide(true);
@@ -159,7 +160,7 @@
             }, [loadData]);
 
             const callAI = async (personaContext, msg, specialOrder = "") => {
-                if(!settings.apiKey) return "API 키를 등록해주세요.";
+                if(!settings.apiKey) return "API 키를 등록해줘.";
                 try {
                     const res = await fetch("https://api.openai.com/v1/chat/completions", {
                         method: "POST",
@@ -168,7 +169,7 @@
                             model: "gpt-4o", 
                             messages: [{
                                 role: "system", 
-                                content: `당신은 ${settings.characterName}입니다.\n\n[페르소나]\n${settings.persona}\n\n[지시]\n말투를 200% 유지하세요. AI처럼 굴지 마세요.\n${specialOrder}`
+                                content: `당신은 ${settings.characterName}입니다.\n[페르소나]\n${settings.persona}\n\n[지시]\n말투를 200% 유지해. ${specialOrder}`
                             }, {role: "user", content: msg}] 
                         })
                     });
@@ -177,17 +178,15 @@
                 } catch(e) { return "통신 실패.."; }
             };
 
-            const closeGuide = async () => {
-                const newS = { ...settings, hasSeenGuide: true };
-                setSettings(newS);
-                if (user) await db.collection('users').doc(user.uid).set({ settings: newS }, { merge: true });
-                setShowGuide(false);
+            const handleLogin = async () => {
+                const provider = new firebase.auth.GoogleAuthProvider();
+                await auth.signInWithPopup(provider);
             };
 
             if (!user) return (
                 <div className="app-shell items-center justify-center p-10 text-center">
                     <h1 className="text-4xl font-bold text-[#8D6E63] mb-8 font-serif">DIRI-Penpal</h1>
-                    <button onClick={() => auth.signInWithPopup(new firebase.auth.GoogleAuthProvider())} className="w-full bg-white border py-4 rounded-3xl flex items-center justify-center gap-3 shadow-md active:scale-95 transition">
+                    <button onClick={handleLogin} className="w-full bg-white border py-4 rounded-3xl flex items-center justify-center gap-3 shadow-md">
                         <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" width="20"/> 구글 로그인 시작
                     </button>
                 </div>
@@ -195,7 +194,12 @@
 
             return (
                 <div className="app-shell">
-                    {showGuide && <GuidePage onFinish={closeGuide} />}
+                    {showGuide && <GuidePage onFinish={async () => {
+                        const newS = { ...settings, hasSeenGuide: true };
+                        setSettings(newS);
+                        await db.collection('users').doc(user.uid).set({ settings: newS }, { merge: true });
+                        setShowGuide(false);
+                    }} />}
                     
                     <div className="main-content">
                         {activeTab === 'today' && <Dashboard data={data} settings={settings} advice={advice} setAdvice={setAdvice} callAI={callAI} currentTime={currentTime} />}
@@ -227,35 +231,18 @@
             </button>
         );
 
-        const GuidePage = ({ onFinish }) => {
-            const [step, setStep] = useState(1);
-            return (
-                <div className="guide-overlay">
-                    <div className="bg-white w-full max-w-[400px] rounded-[32px] p-8 space-y-6">
-                        {step === 1 && (
-                            <>
-                                <h2 className="text-2xl font-bold text-[#8D6E63]">반가워요! 💌</h2>
-                                <p className="text-sm leading-relaxed text-gray-500">DIRI-Penpal은 AI 친구와 비밀 편지를 주고받는 다이어리예요.</p>
-                                <button onClick={()=>setStep(2)} className="w-full bg-[#8D6E63] text-white py-4 rounded-2xl font-bold">다음으로</button>
-                            </>
-                        )}
-                        {step === 2 && (
-                            <>
-                                <h2 className="text-xl font-bold text-[#8D6E63]">🔑 API 키 등록</h2>
-                                <p className="text-xs text-left bg-gray-50 p-4 rounded-xl">OpenAI 사이트에서 생성한 키를 [설정] 탭에 넣으세요.</p>
-                                <button onClick={()=>setStep(3)} className="w-full bg-[#8D6E63] text-white py-4 rounded-2xl font-bold">이해했어요</button>
-                            </>
-                        )}
-                        {step === 3 && (
-                            <>
-                                <h2 className="text-xl font-bold text-[#8D6E63]">시작할 준비 끝! 🚀</h2>
-                                <button onClick={onFinish} className="w-full bg-[#8D6E63] text-white py-4 rounded-2xl font-bold">시작하기</button>
-                            </>
-                        )}
-                    </div>
+        const GuidePage = ({ onFinish }) => (
+            <div className="guide-overlay">
+                <div className="bg-white w-full max-w-[340px] rounded-[32px] p-8 space-y-6">
+                    <h2 className="text-2xl font-bold text-[#8D6E63]">반가워요! 💌</h2>
+                    <p className="text-sm leading-relaxed text-gray-500">
+                        나만의 AI 친구와 비밀 편지를 주고받는 다이어리예요.<br/><br/>
+                        <b>[설정]</b>에서 OpenAI API 키를 먼저 등록해줘!
+                    </p>
+                    <button onClick={onFinish} className="w-full bg-[#8D6E63] text-white py-4 rounded-2xl font-bold shadow-lg">시작하기</button>
                 </div>
-            );
-        };
+            </div>
+        );
 
         const Dashboard = ({ data, settings, advice, setAdvice, callAI, currentTime }) => {
             const todayT = data.trackers.find(t => new Date(t.date).toDateString() === new Date().toDateString());
@@ -263,7 +250,7 @@
             const isDelivered = lastL ? new Date(currentTime) >= new Date(lastL.deliverAt) : true;
             return (
                 <div className="p-6 space-y-6">
-                    <div className="ddb-card flex gap-4 items-center">
+                    <div className="ddb-card flex gap-4 items-center border border-[#8D6E6311]">
                         <img src={settings.profileImg || 'https://via.placeholder.com/100'} className="w-14 h-14 rounded-full border-2 border-[#8D6E63] object-cover" />
                         <div className="flex-1 overflow-hidden">
                             <h4 className="font-bold text-[#8D6E63]">{settings.characterName}</h4>
@@ -273,14 +260,14 @@
                     <div className="p-5 bg-[#EFEBE9] rounded-[24px] space-y-2">
                         <h5 className="text-[#8D6E63] font-bold text-xs"><i className="fa-solid fa-lightbulb"></i> 캐릭터의 조언</h5>
                         <p className="text-sm leading-relaxed italic">"{advice}"</p>
-                        <button onClick={async ()=>{setAdvice("생각 중.."); setAdvice(await callAI(settings.persona, "짧게 조언 한마디 해줘."));}} className="text-[10px] text-white bg-[#8D6E63] px-3 py-1 rounded-full mt-2">새로고침</button>
+                        <button onClick={async ()=>{setAdvice("생각 중.."); setAdvice(await callAI(settings.persona, "짧게 조언 한마디 해줘."));}} className="text-[10px] text-white bg-[#8D6E63] px-3 py-1 rounded-full mt-2">받기</button>
                     </div>
-                    <div className="ddb-card"><h5 className="text-purple-500 font-bold text-xs"><i className="fa-solid fa-sparkles"></i> 운세 요약</h5><p className="text-sm line-clamp-2 mt-2">{data.fortunes[0]?.content || "운세 탭을 확인해봐!"}</p></div>
+                    <div className="ddb-card cursor-pointer"><h5 className="text-purple-500 font-bold text-xs"><i className="fa-solid fa-sparkles"></i> 운세 요약</h5><p className="text-sm line-clamp-2 mt-2">{data.fortunes[0]?.content || "운세 탭을 확인해봐!"}</p></div>
                     <div className="ddb-card">
                         <h5 className="font-bold text-sm mb-4"><i className="fa-solid fa-chart-line"></i> 오늘의 건강 기록</h5>
                         {todayT ? (
                             <div className="grid grid-cols-2 gap-y-3 text-[13px] text-[#5D4037]">
-                                <span>😊 기분: {todayT.mood}</span><span>🤒 컨디션: {todayT.condition}</span><span>🏃 운동: {todayT.exercise}h</span><span>☀️ 날씨: {todayT.weather}</span><span>🌙 수면: {todayT.sleep}h</span>
+                                <span>😊 기분: {todayT.mood}</span><span>🤒 컨디션: {todayT.condition}</span><span>🏃 운동: {todayT.exercise}h</span><span>🌙 수면: {todayT.sleep}h</span>
                             </div>
                         ) : <p className="text-center text-gray-300 text-xs py-4">아직 기록이 없어.</p>}
                     </div>
@@ -304,7 +291,7 @@
                         <div><span>🌙 수면: {form.sleep}h</span><input type="range" min="0" max="12" step="0.5" className="w-full accent-[#8D6E63]" value={form.sleep} onChange={e=>setForm({...form, sleep:e.target.value})} /></div>
                     </div>
                     <button onClick={save} className="w-full bg-[#8D6E63] text-white py-5 rounded-2xl font-bold shadow-lg">기록 저장하기</button>
-                    <button onClick={onGoCalendar} className="w-full bg-white border border-gray-200 py-4 rounded-2xl flex items-center justify-center gap-2 shadow-sm text-gray-400 text-xs font-bold">
+                    <button onClick={onGoCalendar} className="w-full bg-white border border-gray-200 py-4 rounded-2xl flex items-center justify-center gap-2 shadow-sm text-gray-400 text-xs font-bold mt-2">
                         <i className="fa-solid fa-calendar-days text-[#A1887F]"></i> 지난 기록 달력으로 보기
                     </button>
                 </div>
@@ -324,7 +311,7 @@
                 const deliverAt = new Date(new Date().getTime() + delay * 60000).toISOString();
                 const stampImg = STAMP_LIST[Math.floor(Math.random() * STAMP_LIST.length)];
                 await db.collection('users').doc(user.uid).collection('letters').add({ content: text, reply, date: new Date().toISOString(), deliverAt, stampImg });
-                setText(''); loadData(); setLoading(false); alert("편지를 보냈어!");
+                setText(''); loadData(); setLoading(false); alert("보냈어!");
             };
 
             return (
@@ -345,7 +332,7 @@
         };
 
         const CalendarView = ({ data, onDayClick, currentTime }) => {
-            const [viewDate] = useState(new Date(2025, 11, 1)); // 12월 기준 예시
+            const [viewDate] = useState(new Date(2025, 11, 1)); // 12월 기준 고정 예시
             return (
                 <div className="p-6 space-y-6">
                     <div className="flex justify-center items-center gap-4 text-xs font-bold uppercase mb-4">
@@ -380,16 +367,16 @@
                     <div className="flex justify-between items-center"><h2 className="text-xl font-bold text-[#8D7B71]">{data.dateStr}</h2><button onClick={onClose} className="text-2xl text-[#A1887F]">&times;</button></div>
                     {data.tracker && (
                         <div className="ddb-card space-y-2 text-sm">
-                            <h3 className="font-bold opacity-30 text-[10px] uppercase mb-2">Daily Tracker</h3>
-                            <div className="grid grid-cols-2 gap-2"><span>기분: {data.tracker.mood}</span><span>수면: {data.tracker.sleep}h</span></div>
+                            <h3 className="font-bold opacity-30 text-[10px] uppercase mb-2 tracking-widest">Health Tracker</h3>
+                            <div className="grid grid-cols-2 gap-2 text-[#5D4037]"><span>기분: {data.tracker.mood}</span><span>수면: {data.tracker.sleep}h</span><span>컨디션: {data.tracker.condition}</span><span>운동: {data.tracker.exercise}</span></div>
                         </div>
                     )}
                     {data.letter ? (
                         <div className="space-y-4">
-                            <div className="ddb-card space-y-2"><h3 className="text-[10px] opacity-40 uppercase">My Letter</h3><p className="text-sm leading-relaxed">{data.letter.content}</p></div>
+                            <div className="ddb-card space-y-2"><h3 className="text-[10px] opacity-40 uppercase tracking-widest">My Letter</h3><p className="text-sm leading-relaxed">{data.letter.content}</p></div>
                             <div className="ddb-card space-y-2 bg-[#fffdf9]">
-                                <div className="flex justify-between items-center"><h3 className="text-[10px] text-[#8D6E63] uppercase">{characterName}'s Reply</h3><img src={data.letter.stampImg} className="w-12 h-12 object-contain" /></div>
-                                <p className="text-[15px] italic leading-relaxed">"{data.letter.reply}"</p>
+                                <div className="flex justify-between items-center"><h3 className="text-[10px] text-[#8D6E63] uppercase tracking-widest">{characterName}'s Reply</h3><img src={data.letter.stampImg} className="w-12 h-12 object-contain" /></div>
+                                <p className="text-[15px] italic leading-relaxed text-[#5D4037]">"{data.letter.reply}"</p>
                             </div>
                         </div>
                     ) : <p className="text-center py-10 opacity-20 text-sm">기록된 편지가 없습니다.</p>}
@@ -401,7 +388,7 @@
             const [loading, setLoading] = useState(false);
             const getF = async () => {
                 setLoading(true);
-                const res = await callAI(settings.persona, "내 오늘 운세를 점쳐줘.", "[특수 지시: 결과는 반드시 3문장 내외로 캐릭터 어투를 담아 짧게 답하세요.]");
+                const res = await callAI(settings.persona, "내 오늘 운세를 점쳐줘.", "[특수 지시: 결과는 반드시 3문장 내외로 캐릭터 말투를 담아 짧게 답하세요.]");
                 await db.collection('users').doc(user.uid).collection('fortunes').add({content: res, date: new Date().toISOString()});
                 loadData(user.uid); setLoading(false);
             };
@@ -409,8 +396,8 @@
                 <div className="p-6 space-y-6 text-center h-full flex flex-col items-center">
                     <h2 className="text-2xl font-bold text-[#8D6E63] mt-10 font-serif">🔮 오늘의 운세</h2>
                     {data.fortunes[0] ? (
-                        <div className="ddb-card text-left text-sm whitespace-pre-wrap w-full">{data.fortunes[0].content}<button onClick={getF} className="w-full text-[#8D6E63] font-bold mt-10 pt-6 border-t text-xs">다시 점치기</button></div>
-                    ) : <button onClick={getF} disabled={loading} className="bg-[#8D6E63] text-white w-40 h-40 rounded-full shadow-2xl font-bold text-xl mt-20">{loading ? "..." : "점치기"}</button>}
+                        <div className="ddb-card text-left text-sm whitespace-pre-wrap w-full animate-in fade-in">{data.fortunes[0].content}<button onClick={getF} className="w-full text-[#8D6E63] font-bold mt-10 pt-6 border-t text-xs">다시 점치기</button></div>
+                    ) : <button onClick={getF} disabled={loading} className="bg-[#8D6E63] text-white w-40 h-40 rounded-full shadow-2xl font-bold text-xl mt-20 active:scale-95 transition">{loading ? "..." : "점치기"}</button>}
                 </div>
             );
         };
@@ -422,11 +409,11 @@
                     <h2 className="text-xl font-bold text-center text-[#8D6E63] font-serif">환경 설정</h2>
                     <div className="ddb-card space-y-6">
                         <div className="flex flex-col items-center gap-4"><img src={settings.profileImg || 'https://via.placeholder.com/100'} className="w-20 h-20 rounded-full border-2 border-[#8D6E6322] object-cover" /><input type="file" onChange={e=>{const r=new FileReader(); r.onloadend=()=>setSettings({...settings, profileImg:r.result}); r.readAsDataURL(e.target.files[0])}} className="text-[10px]" /></div>
-                        <input className="w-full p-3 border-b outline-none text-sm" placeholder="내 이름" value={settings.userName} onChange={e=>setSettings({...settings, userName:e.target.value})} />
-                        <input className="w-full p-3 border-b outline-none text-sm" placeholder="캐릭터 이름" value={settings.characterName} onChange={e=>setSettings({...settings, characterName:e.target.value})} />
-                        <input className="w-full p-3 border-b outline-none text-sm" type="password" placeholder="OpenAI API Key" value={settings.apiKey} onChange={e=>setSettings({...settings, apiKey:e.target.value})} />
-                        <textarea className="w-full p-4 border rounded-[20px] h-32 text-xs leading-relaxed" placeholder="AI 성격과 말투" value={settings.persona} onChange={e=>setSettings({...settings, persona:e.target.value})} />
-                        <button onClick={save} className="w-full bg-[#8D6E63] text-white py-4 rounded-2xl font-bold shadow-md">설정 저장</button>
+                        <input className="w-full p-3 border-b outline-none text-sm bg-transparent" placeholder="내 이름" value={settings.userName} onChange={e=>setSettings({...settings, userName:e.target.value})} />
+                        <input className="w-full p-3 border-b outline-none text-sm bg-transparent" placeholder="캐릭터 이름" value={settings.characterName} onChange={e=>setSettings({...settings, characterName:e.target.value})} />
+                        <input className="w-full p-3 border-b outline-none text-sm bg-transparent" type="password" placeholder="OpenAI API Key" value={settings.apiKey} onChange={e=>setSettings({...settings, apiKey:e.target.value})} />
+                        <textarea className="w-full p-4 border rounded-[20px] h-32 text-xs leading-relaxed bg-transparent" placeholder="AI 성격과 말투" value={settings.persona} onChange={e=>setSettings({...settings, persona:e.target.value})} />
+                        <button onClick={save} className="w-full bg-[#8D6E63] text-white py-4 rounded-2xl font-bold shadow-md active:scale-95 transition">설정 저장</button>
                     </div>
                 </div>
             );
