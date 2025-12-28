@@ -22,7 +22,7 @@
         .main-content::-webkit-scrollbar { display: none; }
         .bottom-nav { position: absolute; bottom: 0; width: 100%; height: calc(80px + env(safe-area-inset-bottom)); background: white; display: flex; justify-content: space-around; align-items: flex-start; padding-top: 15px; border-top: 1px solid #eee; z-index: 100; padding-bottom: env(safe-area-inset-bottom); }
         .ddb-card { background: white; border-radius: 28px; padding: 20px; box-shadow: 0 4px 15px rgba(141, 110, 99, 0.06); width: 100%; }
-        .stat-card { background: white; border-radius: 16px; padding: 12px; text-align: center; flex: 1; border: 1px solid #F3E5F5; }
+        .lined-paper { background-image: linear-gradient(transparent 34px, rgba(141, 110, 99, 0.1) 35px); background-size: 100% 35px; line-height: 35px; border: none; resize: none; width: 100%; height: 100%; min-height: 380px; font-size: 17px; outline: none; background-color: transparent; }
         .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
         .calendar-day { aspect-ratio: 1/1; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 12px; position: relative; background: #fff; cursor: pointer; }
         .day-number { z-index: 10; font-weight: 800; color: #5D4037; text-shadow: -1.5px -1.5px 0 #fff, 1.5px -1.5px 0 #fff, -1.5px 1.5px 0 #fff, 1.5px 1.5px 0 #fff; }
@@ -30,6 +30,9 @@
         .step-btn { padding: 6px 2px; border-radius: 10px; border: 1px solid #eee; font-size: 9px; transition: 0.2s; background: #fcfcfc; color: #999; text-align: center; }
         .step-btn.active { background: #8D6E63; color: white; border-color: #8D6E63; font-weight: bold; }
         .guide-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.7); z-index: 200; display: flex; align-items: center; justify-content: center; padding: 20px; }
+        .letter-text { font-size: 0.95rem; line-height: 1.7; word-break: keep-all; }
+        .fade-in { animation: fadeIn 0.3s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
     </style>
 </head>
 <body>
@@ -62,25 +65,16 @@
         const cleanStr = (s) => s ? s.replace(/^['"“]+|['"”]+$/g, '').trim() : "";
         const truncateStr = (s, n = 50) => s ? (s.length > n ? s.slice(0, n) + "..." : s) : "";
 
-        // 주차 계산 헬퍼
-        const getWeekNumber = (d) => {
-            const date = new Date(d);
-            date.setHours(0, 0, 0, 0);
-            date.setDate(date.getDate() + 4 - (date.getDay() || 7));
-            const yearStart = new Date(date.getFullYear(), 0, 1);
-            return Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
-        };
-
         const App = () => {
             const [user, setUser] = useState(null);
             const [activeTab, setActiveTab] = useState('today');
             const [data, setData] = useState({ letters: [], trackers: [], fortunes: [] });
-            const [weatherInfo, setWeatherInfo] = useState({ temp: "--", desc: "날씨 확인중" });
             const [settings, setSettings] = useState({ 
-                userName: '나의 이름', characterName: '캐릭터 이름', apiKey: '', persona: '', profileImg: '',
+                userName: '나의 이름', characterName: '히요리', apiKey: '', persona: '', profileImg: '',
                 replyMode: '바로', fixedDelay: 0, randomMin: 5, randomMax: 30, hasSeenGuide: false
             });
-            const [briefing, setBriefing] = useState('어제를 생각하고 있어..');
+            const [briefing, setBriefing] = useState('어제를 회상하는 중..');
+            const [advice, setAdvice] = useState('로딩 중..');
 
             useEffect(() => {
                 const unsubAuth = auth.onAuthStateChanged(async (u) => {
@@ -104,33 +98,50 @@
             }, []);
 
             const callAI = async (msg, instruction = "") => {
-                if(!settings.apiKey) return "API 키를 등록해주세요.";
+                if(!settings.apiKey) return "API 키 등록 필요";
                 try {
                     const res = await fetch("https://api.openai.com/v1/chat/completions", {
                         method: "POST",
                         headers: { "Authorization": `Bearer ${settings.apiKey}`, "Content-Type": "application/json" },
                         body: JSON.stringify({ 
                             model: "gpt-4o-mini", 
-                            messages: [{ role: "system", content: `당신은 ${settings.characterName}입니다. 페르소나: ${settings.persona}. 따옴표 쓰지 마세요. ${instruction}` }, { role: "user", content: msg }]
+                            messages: [
+                                { role: "system", content: `당신은 ${settings.characterName}입니다. 페르소나: ${settings.persona}. 따옴표 금지. ${instruction}` },
+                                { role: "user", content: msg }
+                            ]
                         })
                     });
                     const json = await res.json();
                     return json.choices[0].message.content;
-                } catch(e) { return "통신 실패.."; }
+                } catch(e) { return "통신 실패"; }
             };
+
+            useEffect(() => {
+                if (user && activeTab === 'today') {
+                    const getBrief = async () => {
+                        const yest = new Date(); yest.setDate(yest.getDate() - 1);
+                        const record = data.trackers.find(t => new Date(t.date).toDateString() === yest.toDateString());
+                        let bPrompt = record 
+                            ? `어제 기록: 기분 ${STEP_TITLES.mood[record.mood-1]}, 컨디션 ${STEP_TITLES.condition[record.condition-1]}, 수면 ${record.sleep}h. 캐릭터 성격대로 3문장 브리핑.`
+                            : `어제 기록 없음. 네 성격대로 잔소리 3문장.`;
+                        const [b, a] = await Promise.all([callAI(bPrompt), callAI("오늘의 다정한 조언 한마디.")]);
+                        setBriefing(b); setAdvice(a);
+                    };
+                    getBrief();
+                }
+            }, [user, activeTab, data.trackers]);
 
             if (!user) return <div className="app-shell items-center justify-center p-10 text-center"><h1 className="text-4xl font-bold text-[#8D6E63] mb-8 font-serif">DIRI-Penpal</h1><button onClick={() => auth.signInWithPopup(new firebase.auth.GoogleAuthProvider())} className="w-full bg-white border py-4 rounded-3xl flex items-center justify-center gap-3 shadow-md">구글 로그인</button></div>;
 
             return (
                 <div className="app-shell">
                     <div className="main-content">
-                        {activeTab === 'today' && <Dashboard data={data} settings={settings} briefing={briefing} setBriefing={setBriefing} callAI={callAI} />}
-                        {activeTab === 'tracker' && <TrackerReport user={user} trackers={data.trackers} />}
+                        {activeTab === 'today' && <Dashboard data={data} settings={settings} briefing={briefing} advice={advice} callAI={callAI} />}
+                        {activeTab === 'tracker' && <TrackerWeekly user={user} trackers={data.trackers} />}
                         {activeTab === 'write' && <LetterWrite user={user} settings={settings} callAI={callAI} STAMP_LIST={STAMP_LIST} />}
-                        {activeTab === 'calendar' && <CalendarView data={data} onDelete={(id) => { if(confirm("삭제하시겠습니까?")) db.collection('users').doc(user.uid).collection('letters').doc(id).delete(); }} />}
+                        {activeTab === 'calendar' && <CalendarOnlyLetters data={data} onDelete={(id) => { if(confirm("삭제?")) db.collection('users').doc(user.uid).collection('letters').doc(id).delete(); }} />}
                         {activeTab === 'settings' && <SettingsView user={user} settings={settings} setSettings={setSettings} onSave={()=>setActiveTab('today')} />}
                     </div>
-
                     <div className="bottom-nav">
                         <NavBtn icon="fa-house" label="오늘" active={activeTab==='today'} onClick={()=>setActiveTab('today')} />
                         <NavBtn icon="fa-clipboard-list" label="기록" active={activeTab==='tracker'} onClick={()=>setActiveTab('tracker')} />
@@ -142,51 +153,34 @@
             );
         };
 
-        const Dashboard = ({ data, settings, briefing, setBriefing, callAI }) => {
+        const Dashboard = ({ data, settings, briefing, advice, callAI }) => {
             const lastL = data.letters[0];
             const isDelivered = lastL ? new Date() >= new Date(lastL.deliverAt) : true;
-            
-            useEffect(() => {
-                const generateBrief = async () => {
-                    const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
-                    const record = data.trackers.find(t => new Date(t.date).toDateString() === yesterday.toDateString());
-                    let prompt = record ? `어제 기록: 기분 ${STEP_TITLES.mood[record.mood-1]}, 수면 ${record.sleep}시간. 3문장 이내 브리핑.` : `어제 기록 없음. 잔소리 3문장.`;
-                    const res = await callAI(prompt);
-                    setBriefing(res);
-                };
-                if(data.trackers.length >= 0) generateBrief();
-            }, [data.trackers]);
-
             return (
-                <div className="p-6 space-y-6">
-                    <div className="ddb-card flex gap-4 items-start border-l-4 border-[#8D6E63]">
-                        <img src={settings.profileImg || 'https://via.placeholder.com/100'} className="w-14 h-14 rounded-full border-2 border-[#8D6E63] object-cover" />
+                <div className="p-6 space-y-6 animate-in fade-in">
+                    <div className="ddb-card flex gap-4 border-l-4 border-[#8D6E63]">
+                        <img src={settings.profileImg || 'https://via.placeholder.com/100'} className="w-14 h-14 rounded-full border-2 border-[#8D6E63] object-cover shadow-sm" />
                         <div className="flex-1 space-y-2">
                             <h4 className="font-bold text-[#8D6E63] text-sm">{settings.characterName}</h4>
-                            <div className="text-sm bg-[#fdfaf3] p-3 rounded-xl italic leading-relaxed whitespace-pre-wrap">
-                                "{truncateStr(lastL && isDelivered ? lastL.reply : "편지 기다릴게!", 50)}"
-                            </div>
+                            <div className="text-sm bg-[#fdfaf3] p-3 rounded-xl italic">"{truncateStr(lastL && isDelivered ? lastL.reply : "안녕!", 50)}"</div>
                         </div>
                     </div>
-                    <div className="ddb-card bg-gray-50 border border-gray-100 p-4">
-                        <h5 className="text-[11px] font-bold text-[#8D6E63] uppercase tracking-widest mb-2 font-serif text-center">Yesterday's Briefing</h5>
-                        <p className="text-sm leading-relaxed text-gray-600">"{cleanStr(briefing)}"</p>
-                    </div>
-                    <div className="flex gap-3">
-                        <div className="stat-card"><p className="text-[9px] opacity-40 font-bold uppercase">Total</p><p className="text-lg font-bold text-[#8D6E63]">{data.trackers.length}</p></div>
-                        <div className="stat-card" style={{backgroundColor: '#8D6E63', color: 'white'}}><p className="text-[9px] opacity-70 font-bold uppercase">Month</p><p className="text-lg font-bold">4</p></div>
+                    <div className="ddb-card bg-gray-50 p-4"><h5 className="text-[10px] font-bold text-[#8D6E63] uppercase mb-2">Yesterday Briefing</h5><p className="text-sm leading-relaxed text-gray-600">"{cleanStr(briefing)}"</p></div>
+                    <div className="p-6 bg-[#EFEBE9] rounded-[28px] space-y-2">
+                        <h5 className="text-[#8D6E63] font-bold text-xs">조언 한마디</h5>
+                        <p className="text-sm italic">"{cleanStr(advice)}"</p>
                     </div>
                 </div>
             );
         };
 
-        /* ✅ 기록 리포트 (슬라이딩 주간 모아보기) */
-        const TrackerReport = ({ user, trackers }) => {
+        /* ✅ 기록 탭: 주간 슬라이딩 및 모든 수치 평균치 요약 로직 */
+        const TrackerWeekly = ({ user, trackers }) => {
             const [weekOffset, setWeekOffset] = useState(0);
             const [isWriting, setIsWriting] = useState(false);
             const [form, setForm] = useState({ sleep: 7, mood: 3, condition: 3, exercise: 1, weather: 3 });
 
-            const currentWeekData = useMemo(() => {
+            const weekData = useMemo(() => {
                 const now = new Date();
                 now.setDate(now.getDate() + (weekOffset * 7));
                 const start = new Date(now.setDate(now.getDate() - now.getDay()));
@@ -199,115 +193,84 @@
 
                 if(filtered.length === 0) return null;
 
-                const avg = (arr) => (arr.reduce((a, b) => a + b, 0) / arr.length).toFixed(1);
+                const getAvg = (arr) => Math.round(arr.reduce((a, b) => a + b, 0) / arr.length);
                 return {
                     label: `${start.getMonth()+1}월 ${Math.ceil(start.getDate()/7)}주차`,
-                    mood: avg(filtered.map(t => t.mood)),
-                    condition: avg(filtered.map(t => t.condition)),
-                    exercise: avg(filtered.map(t => t.exercise)),
-                    sleep: avg(filtered.map(t => parseFloat(t.sleep))),
+                    mood: getAvg(filtered.map(t => t.mood)),
+                    condition: getAvg(filtered.map(t => t.condition)),
+                    exercise: getAvg(filtered.map(t => t.exercise)),
+                    weather: getAvg(filtered.map(t => t.weather)),
+                    sleep: (filtered.reduce((a,b) => a + parseFloat(b.sleep), 0) / filtered.length).toFixed(1),
                     count: filtered.length
                 };
             }, [trackers, weekOffset]);
 
-            const save = async () => { 
-                await db.collection('users').doc(user.uid).collection('trackers').add({...form, date: new Date().toISOString()}); 
-                alert("저장되었습니다!"); setIsWriting(false);
-            };
+            const save = async () => { await db.collection('users').doc(user.uid).collection('trackers').add({...form, date: new Date().toISOString()}); alert("저장됨!"); setIsWriting(false); };
 
             return (
                 <div className="p-6 space-y-6">
-                    <div className="flex justify-between items-center">
-                        <h2 className="text-lg font-bold text-[#8D6E63] font-serif">건강 리포트</h2>
-                        <button onClick={()=>setIsWriting(!isWriting)} className="text-xs bg-[#8D6E63] text-white px-3 py-1 rounded-full shadow-sm">
-                            {isWriting ? "닫기" : "오늘 기록하기"}
-                        </button>
-                    </div>
-
+                    <div className="flex justify-between items-center"><h2 className="text-lg font-bold text-[#8D6E63] font-serif">건강 리포트</h2><button onClick={()=>setIsWriting(!isWriting)} className="text-[10px] bg-[#8D6E63] text-white px-3 py-1.5 rounded-full">{isWriting?"닫기":"기록하기"}</button></div>
                     {isWriting ? (
                         <div className="ddb-card space-y-4 fade-in">
-                            {Object.keys(STEP_TITLES).map(key => (
-                                <div key={key} className="space-y-2">
-                                    <div className="flex justify-between text-[10px] font-bold opacity-60"><span>{key}</span><span>{STEP_TITLES[key][form[key]-1]}</span></div>
-                                    <div className="flex gap-1">{STEP_TITLES[key].map((t, i) => (<button key={i} onClick={()=>setForm({...form, [key]: i+1})} className={`step-btn flex-1 ${form[key]===i+1?'active':''}`}>{t}</button>))}</div>
+                            {Object.keys(STEP_TITLES).map(k => (
+                                <div key={k} className="space-y-1">
+                                    <div className="flex justify-between text-[10px] font-bold opacity-40"><span>{k}</span><span>{STEP_TITLES[k][form[k]-1]}</span></div>
+                                    <div className="flex gap-1">{STEP_TITLES[k].map((t, i) => (<button key={i} onClick={()=>setForm({...form, [k]: i+1})} className={`step-btn flex-1 ${form[k]===i+1?'active':''}`}>{t}</button>))}</div>
                                 </div>
                             ))}
                             <div className="pt-2"><input type="range" min="0" max="12" step="0.5" className="w-full accent-[#8D6E63]" value={form.sleep} onChange={e=>setForm({...form, sleep: e.target.value})} /></div>
-                            <button onClick={save} className="w-full bg-[#8D6E63] text-white py-3 rounded-xl font-bold text-sm">저장</button>
+                            <button onClick={save} className="w-full bg-[#8D6E63] text-white py-3 rounded-xl font-bold text-xs mt-2">오늘의 기록 저장</button>
                         </div>
                     ) : (
                         <div className="space-y-4 fade-in">
                             <div className="flex justify-between items-center bg-white p-3 rounded-2xl shadow-sm">
-                                <button onClick={()=>setWeekOffset(weekOffset-1)} className="opacity-30"><i className="fa-solid fa-chevron-left"></i></button>
-                                <span className="font-bold text-sm text-[#8D6E63]">{currentWeekData?.label || "기록 없음"}</span>
-                                <button onClick={()=>setWeekOffset(weekOffset+1)} className="opacity-30"><i className="fa-solid fa-chevron-right"></i></button>
+                                <button onClick={()=>setWeekOffset(weekOffset-1)} className="p-2 opacity-30"><i className="fa-solid fa-chevron-left text-xs"></i></button>
+                                <span className="font-bold text-xs text-[#8D6E63]">{weekData?.label || "데이터 없음"}</span>
+                                <button onClick={()=>setWeekOffset(weekOffset+1)} className="p-2 opacity-30"><i className="fa-solid fa-chevron-right text-xs"></i></button>
                             </div>
-
-                            {currentWeekData ? (
-                                <div className="space-y-4">
-                                    <div className="ddb-card space-y-4">
-                                        <h5 className="text-[10px] font-bold opacity-30 uppercase tracking-widest text-center">Weekly Average</h5>
-                                        <div className="grid grid-cols-2 gap-4">
-                                            <div className="text-center p-3 bg-orange-50 rounded-2xl">
-                                                <p className="text-[9px] opacity-50 mb-1">평균 기분</p>
-                                                <p className="text-sm font-bold">{STEP_TITLES.mood[Math.round(currentWeekData.mood)-1]}</p>
-                                            </div>
-                                            <div className="text-center p-3 bg-blue-50 rounded-2xl">
-                                                <p className="text-[9px] opacity-50 mb-1">평균 수면</p>
-                                                <p className="text-sm font-bold">{currentWeekData.sleep}h</p>
-                                            </div>
-                                            <div className="text-center p-3 bg-purple-50 rounded-2xl">
-                                                <p className="text-[9px] opacity-50 mb-1">운동 강도</p>
-                                                <p className="text-sm font-bold">{STEP_TITLES.exercise[Math.round(currentWeekData.exercise)-1]}</p>
-                                            </div>
-                                            <div className="text-center p-3 bg-green-50 rounded-2xl">
-                                                <p className="text-[9px] opacity-50 mb-1">컨디션</p>
-                                                <p className="text-sm font-bold">{STEP_TITLES.condition[Math.round(currentWeekData.condition)-1]}</p>
-                                            </div>
-                                        </div>
+                            {weekData ? (
+                                <div className="ddb-card space-y-5">
+                                    <h5 className="text-[9px] font-bold opacity-30 uppercase tracking-widest text-center">Weekly Average Stats</h5>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div className="bg-orange-50 p-3 rounded-2xl text-center"><p className="text-[9px] opacity-50 mb-1">기분</p><p className="text-xs font-bold">{STEP_TITLES.mood[weekData.mood-1]}</p></div>
+                                        <div className="bg-blue-50 p-3 rounded-2xl text-center"><p className="text-[9px] opacity-50 mb-1">수면</p><p className="text-xs font-bold">{weekData.sleep}h</p></div>
+                                        <div className="bg-green-50 p-3 rounded-2xl text-center"><p className="text-[9px] opacity-50 mb-1">컨디션</p><p className="text-xs font-bold">{STEP_TITLES.condition[weekData.condition-1]}</p></div>
+                                        <div className="bg-purple-50 p-3 rounded-2xl text-center"><p className="text-[9px] opacity-50 mb-1">운동</p><p className="text-xs font-bold">{STEP_TITLES.exercise[weekData.exercise-1]}</p></div>
+                                        <div className="bg-yellow-50 p-3 rounded-2xl text-center col-span-2"><p className="text-[9px] opacity-50 mb-1">날씨</p><p className="text-xs font-bold">{STEP_TITLES.weather[weekData.weather-1]}</p></div>
                                     </div>
-                                    <p className="text-center text-[10px] opacity-30 font-bold">이번 주 총 {currentWeekData.count}번 기록함</p>
+                                    <p className="text-center text-[9px] opacity-30 font-bold">총 {weekData.count}회 기록됨</p>
                                 </div>
-                            ) : (
-                                <div className="py-20 text-center opacity-20"><i className="fa-solid fa-folder-open text-4xl mb-3"></i><p className="text-sm">이 주에는 기록이 없어요.</p></div>
-                            )}
+                            ) : <div className="py-20 text-center opacity-20 text-xs">기록이 없는 주차입니다.</div>}
                         </div>
                     )}
                 </div>
             );
         };
 
-        const CalendarView = ({ data, onDelete }) => {
-            const [viewDate, setViewDate] = useState(new Date());
-            const [selectedDate, setSelectedDate] = useState(new Date());
-            const daysInMonth = new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 0).getDate();
-            const firstDay = new Date(viewDate.getFullYear(), viewDate.getMonth(), 1).getDay();
+        const CalendarOnlyLetters = ({ data, onDelete }) => {
+            const [vDate, setVDate] = useState(new Date());
+            const [sDate, setSDate] = useState(new Date());
+            const daysInMonth = new Date(vDate.getFullYear(), vDate.getMonth() + 1, 0).getDate();
+            const firstDay = new Date(vDate.getFullYear(), vDate.getMonth(), 1).getDay();
             const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-
-            const filteredLetters = useMemo(() => {
-                return data.letters.filter(l => new Date(l.date).toDateString() === selectedDate.toDateString());
-            }, [data.letters, selectedDate]);
+            const filtered = data.letters.filter(l => new Date(l.date).toDateString() === sDate.toDateString());
 
             return (
                 <div className="p-6 space-y-6">
-                    <div className="flex justify-between items-center px-4">
-                        <button onClick={()=>setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth()-1, 1))} className="opacity-30"><i className="fa-solid fa-chevron-left"></i></button>
-                        <h2 className="text-md font-bold text-[#8D6E63] font-serif uppercase tracking-widest">{monthNames[viewDate.getMonth()]} {viewDate.getFullYear()}</h2>
-                        <button onClick={()=>setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth()+1, 1))} className="opacity-30"><i className="fa-solid fa-chevron-right"></i></button>
-                    </div>
+                    <div className="flex justify-between items-center px-4"><button onClick={()=>setVDate(new Date(vDate.getFullYear(), vDate.getMonth()-1, 1))} className="opacity-30"><i className="fa-solid fa-chevron-left text-xs"></i></button><h2 className="text-md font-bold text-[#8D6E63] font-serif tracking-widest">{monthNames[vDate.getMonth()]} {vDate.getFullYear()}</h2><button onClick={()=>setVDate(new Date(vDate.getFullYear(), vDate.getMonth()+1, 1))} className="opacity-30"><i className="fa-solid fa-chevron-right text-xs"></i></button></div>
                     <div className="ddb-card p-5 shadow-md"><div className="calendar-grid">
                         {['S','M','T','W','T','F','S'].map(d=><div key={d} className="text-[10px] text-[#D7CCC8] font-bold text-center mb-4">{d}</div>)}
                         {Array(firstDay).fill(0).map((_, i) => <div key={`e-${i}`} />)}
                         {Array.from({length: daysInMonth}, (_, i) => i + 1).map(d => {
-                            const cur = new Date(viewDate.getFullYear(), viewDate.getMonth(), d);
+                            const cur = new Date(vDate.getFullYear(), vDate.getMonth(), d);
                             const l = data.letters.find(lettr => new Date(lettr.date).toDateString() === cur.toDateString());
-                            return (<div key={d} onClick={() => setSelectedDate(cur)} className={`aspect-square flex items-center justify-center relative cursor-pointer ${selectedDate.toDateString()===cur.toDateString() ? 'bg-orange-50 rounded-xl' : ''}`}><span className="day-number">{d}</span>{l && <img src={l.stampImg} className="stamp-img opacity-80" />}</div>);
+                            return (<div key={d} onClick={() => setSDate(cur)} className={`aspect-square flex items-center justify-center relative cursor-pointer ${sDate.toDateString()===cur.toDateString() ? 'bg-orange-50 rounded-xl' : ''}`}><span className="day-number">{d}</span>{l && <img src={l.stampImg} className="stamp-img opacity-80" />}</div>);
                         })}
                     </div></div>
                     <div className="space-y-2 pb-4">
                         <h5 className="text-[9px] font-bold opacity-30 tracking-widest px-2 uppercase">Letters Only</h5>
-                        {filteredLetters.map(item => (
-                            <div key={item.id} className="bg-white p-3 rounded-2xl shadow-sm border-l-4 border-[#8D6E63] flex justify-between items-center">
+                        {filtered.map(item => (
+                            <div key={item.id} className="bg-white p-3 rounded-2xl shadow-sm border-l-4 border-[#8D6E63] flex justify-between items-center animate-in slide-in-from-bottom-2">
                                 <div className="flex-1 truncate text-[11px] font-medium italic">✉️ "{cleanStr(item.reply) || "답장 대기중.."}"</div>
                                 <button onClick={()=>onDelete(item.id)} className="text-red-100 p-1 text-[10px] ml-2"><i className="fa-solid fa-trash-can"></i></button>
                             </div>
@@ -320,45 +283,33 @@
         const LetterWrite = ({ user, settings, STAMP_LIST, callAI }) => {
             const [text, setText] = useState('');
             const [loading, setLoading] = useState(false);
-            const [image, setImage] = useState(null);
-
             const send = async () => {
-                if(!text.trim() || !settings.apiKey) return alert("내용 또는 API 키를 확인해줘!");
+                if(!text.trim() || !settings.apiKey) return alert("입력 확인!");
                 setLoading(true);
                 const stampImg = STAMP_LIST[Math.floor(Math.random() * STAMP_LIST.length)];
                 let delay = settings.replyMode === 'n분후' ? parseInt(settings.fixedDelay) : settings.replyMode === '랜덤' ? Math.floor(Math.random()*(parseInt(settings.randomMax)-parseInt(settings.randomMin)+1))+parseInt(settings.randomMin) : 0;
                 const deliverAt = new Date(new Date().getTime() + delay * 60000).toISOString();
-                const docRef = await db.collection('users').doc(user.uid).collection('letters').add({ content: text, reply: "", date: new Date().toISOString(), deliverAt, stampImg, attachedImg: image });
-                alert("편지를 보냈어!"); setText(''); setImage(null);
-                try {
-                    const aiReply = await callAI(text, "\n[길고 정성스러운 답장 필수]");
-                    await docRef.update({ reply: aiReply });
-                } catch(e) {}
+                const docRef = await db.collection('users').doc(user.uid).collection('letters').add({ content: text, reply: "", date: new Date().toISOString(), deliverAt, stampImg });
+                alert("전송됨!"); setText('');
+                try { const ai = await callAI(text, "[길고 정성스러운 답장]"); await docRef.update({ reply: ai }); } catch(e) {}
                 setLoading(false);
             };
-
-            return (
-                <div className="p-6 h-full flex flex-col">
-                    <div className="flex gap-2 mb-4"><label className="bg-white px-3 py-1.5 rounded-full shadow-sm text-[10px] text-gray-400 font-bold flex items-center gap-2 cursor-pointer border border-gray-50"><i className="fa-solid fa-camera"></i> {image ? "사진 추가됨" : "사진 추가"}<input type="file" className="hidden" accept="image/*" onChange={e => { const r = new FileReader(); r.onloadend = () => setImage(r.result); r.readAsDataURL(e.target.files[0]); }} /></label></div>
-                    <h2 className="text-center font-bold text-[#8D6E63] mb-4 text-base font-serif font-bold">To. {settings.characterName}</h2>
-                    <div className="flex-1 bg-white rounded-[32px] p-6 shadow-sm border border-[#8D6E6311]"><textarea className="lined-paper focus:outline-none" value={text} onChange={e=>setText(e.target.value)} placeholder="마음을 전해봐!" /></div>
-                    <button onClick={send} disabled={loading} className="w-full bg-[#8D6E63] text-white py-4 rounded-[24px] font-bold shadow-lg mt-5 text-sm active:scale-95 transition">{loading ? "전송 중..." : "편지 보내기"}</button>
-                </div>
-            );
+            return (<div className="p-6 h-full flex flex-col"><h2 className="text-center font-bold text-[#8D6E63] mb-4 text-base font-serif">To. {settings.characterName}</h2><div className="flex-1 bg-white rounded-[32px] p-6 shadow-sm border border-[#8D6E6311]"><textarea className="lined-paper focus:outline-none" value={text} onChange={e=>setText(e.target.value)} placeholder="편지를 적어봐.." /></div><button onClick={send} disabled={loading} className="w-full bg-[#8D6E63] text-white py-4 rounded-[24px] font-bold shadow-lg mt-5 text-sm">{loading ? "전송 중..." : "편지 보내기"}</button></div>);
         };
 
         const SettingsView = ({ user, settings, setSettings, onSave }) => {
-            const save = async () => { await db.collection('users').doc(user.uid).set({ settings }, { merge: true }); alert("설정 저장됨!"); onSave(); };
+            const save = async () => { await db.collection('users').doc(user.uid).set({ settings }, { merge: true }); alert("저장됨!"); onSave(); };
             return (
                 <div className="p-6 space-y-6">
                     <h2 className="text-lg font-bold text-center text-[#8D6E63] font-serif uppercase tracking-widest uppercase">Settings</h2>
-                    <div className="ddb-card space-y-5">
-                        <div className="text-center pb-2 border-b border-gray-50"><p className="text-[9px] opacity-40 uppercase font-bold tracking-widest">Account</p><p className="text-[10px] font-medium text-[#8D6E63]">{user?.email}</p></div>
+                    <div className="ddb-card space-y-4">
+                        <div className="text-center pb-2 border-b border-gray-50 mb-2"><p className="text-[9px] opacity-40 uppercase font-bold tracking-widest">Linked Account</p><p className="text-[10px] font-medium text-[#8D6E63]">{user?.email}</p></div>
                         <div className="flex flex-col items-center gap-3"><img src={settings.profileImg || 'https://via.placeholder.com/100'} className="w-16 h-16 rounded-full border-2 border-[#8D6E6322] object-cover" /><input type="file" onChange={e => { const r = new FileReader(); r.onloadend = () => setSettings({...settings, profileImg: r.result}); r.readAsDataURL(e.target.files[0]); }} className="text-[9px]" /></div>
-                        <div className="space-y-3"><input className="w-full p-2 border-b outline-none text-xs bg-transparent" placeholder="내 이름" value={settings.userName} onChange={e=>setSettings({...settings, userName:e.target.value})} /><input className="w-full p-2 border-b outline-none text-xs bg-transparent" placeholder="캐릭터 이름" value={settings.characterName} onChange={e=>setSettings({...settings, characterName:e.target.value})} /><input className="w-full p-2 border-b outline-none text-xs bg-transparent" type="password" placeholder="OpenAI API Key" value={settings.apiKey} onChange={e=>setSettings({...settings, apiKey:e.target.value})} /></div>
-                        <textarea className="w-full p-3 border rounded-[20px] h-28 text-[11px] leading-relaxed bg-transparent" placeholder="성격 설정" value={settings.persona} onChange={e=>setSettings({...settings, persona:e.target.value})} />
+                        <div className="space-y-2"><input className="w-full p-2 border-b outline-none text-xs bg-transparent" placeholder="내 이름" value={settings.userName} onChange={e=>setSettings({...settings, userName:e.target.value})} /><input className="w-full p-2 border-b outline-none text-xs bg-transparent" placeholder="캐릭터 이름" value={settings.characterName} onChange={e=>setSettings({...settings, characterName:e.target.value})} /><input className="w-full p-2 border-b outline-none text-xs bg-transparent" type="password" placeholder="API Key" value={settings.apiKey} onChange={e=>setSettings({...settings, apiKey:e.target.value})} /></div>
+                        <textarea className="w-full p-4 border rounded-[20px] h-28 text-[11px] leading-relaxed bg-transparent" placeholder="말투 설정" value={settings.persona} onChange={e=>setSettings({...settings, persona:e.target.value})} />
                         <button onClick={save} className="w-full bg-[#8D6E63] text-white py-3 rounded-2xl font-bold shadow-md text-xs">저장</button>
                     </div>
+                    <button onClick={()=>auth.signOut()} className="w-full text-red-300 text-[10px] font-bold opacity-50 text-center">LOGOUT</button>
                 </div>
             );
         };
