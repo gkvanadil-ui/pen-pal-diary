@@ -17,50 +17,25 @@
         @import url('https://fonts.googleapis.com/css2?family=Gowun+Dodum&display=swap');
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         body { font-family: 'Gowun Dodum', sans-serif; background-color: #F7F4EB; margin: 0; color: #5D4037; overflow: hidden; }
-        
         .app-shell { width: 100%; max-width: 480px; height: 100dvh; display: flex; flex-direction: column; margin: 0 auto; background-color: #F7F4EB; position: relative; box-shadow: 0 0 20px rgba(0,0,0,0.1); overflow: hidden; }
         .main-content { flex: 1; overflow-y: auto; padding-bottom: 110px; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
-        .main-content::-webkit-scrollbar { display: none; }
-
         .bottom-nav { position: absolute; bottom: 0; width: 100%; height: calc(80px + env(safe-area-inset-bottom)); background: white; display: flex; justify-content: space-around; align-items: flex-start; padding-top: 15px; border-top: 1px solid #eee; z-index: 100; padding-bottom: env(safe-area-inset-bottom); }
         .ddb-card { background: white; border-radius: 28px; padding: 22px; box-shadow: 0 4px 15px rgba(141, 110, 99, 0.06); width: 100%; }
-        
         .lined-paper { background-image: linear-gradient(transparent 39px, rgba(141, 110, 99, 0.1) 40px); background-size: 100% 40px; line-height: 40px; border: none; resize: none; width: 100%; height: 100%; min-height: 350px; font-size: 19px; outline: none; background-color: transparent; }
-
         .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
         .calendar-day { aspect-ratio: 1/1; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 13px; position: relative; background: #fff; cursor: pointer; }
-        .calendar-day.selected { border: 2px solid #8D6E63; background: #fdfaf3; }
-        
-        /* ✅ 캘린더 날짜 흰색 외곽선 효과 */
-        .day-number { 
-            z-index: 10; 
-            font-weight: 800; 
-            color: #5D4037;
-            text-shadow: 
-                -2px -2px 0 #fff,  
-                 2px -2px 0 #fff,
-                -2px  2px 0 #fff,
-                 2px  2px 0 #fff,
-                 0px  2px 0 #fff,
-                 0px -2px 0 #fff,
-                -2px  0px 0 #fff,
-                 2px  0px 0 #fff;
-        }
-
+        .day-number { z-index: 10; font-weight: 800; color: #5D4037; text-shadow: -1.5px -1.5px 0 #fff, 1.5px -1.5px 0 #fff, -1.5px 1.5px 0 #fff, 1.5px 1.5px 0 #fff; }
         .stamp-img { width: 90%; height: 90%; object-fit: contain; position: absolute; z-index: 1; }
-        
-        .guide-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.7); z-index: 200; display: flex; align-items: center; justify-content: center; padding: 20px; }
-        .letter-text { font-size: 1.1rem; line-height: 1.8; word-break: keep-all; }
-
-        .step-btn { width: 32px; height: 32px; border-radius: 8px; border: 1px solid #eee; display: flex; align-items: center; justify-content: center; font-size: 12px; transition: 0.2s; }
+        .step-btn { padding: 6px 10px; border-radius: 10px; border: 1px solid #eee; font-size: 11px; transition: 0.2s; background: #fcfcfc; color: #999; }
         .step-btn.active { background: #8D6E63; color: white; border-color: #8D6E63; font-weight: bold; }
+        .guide-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.7); z-index: 200; display: flex; align-items: center; justify-content: center; padding: 20px; }
     </style>
 </head>
 <body>
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useCallback, useRef } = React;
+        const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
         const WEATHER_API_KEY = "6cbcc6e5eeb04bd0d15491a91a871588";
         const firebaseConfig = {
@@ -78,21 +53,28 @@
 
         const STAMP_BASE_URL = "stamps/"; 
         const STAMP_LIST = Array.from({ length: 118 }, (_, i) => `${STAMP_BASE_URL}stamp_${String(i + 1).padStart(5, '0')}.png`);
+        const STEP_TITLES = {
+            mood: ["최악", "우울", "보통", "좋음", "최상"],
+            condition: ["피곤", "무거움", "보통", "가뿐", "최상"],
+            exercise: ["안함", "산책", "적당히", "열심히", "완전연소"],
+            weather: ["천둥", "비/눈", "흐림", "맑음", "쾌청"]
+        };
 
         const App = () => {
             const [user, setUser] = useState(null);
             const [activeTab, setActiveTab] = useState('today');
             const [data, setData] = useState({ letters: [], trackers: [], fortunes: [] });
-            const [weatherInfo, setWeatherInfo] = useState({ temp: "--", desc: "날씨 로딩중" });
+            const [weatherInfo, setWeatherInfo] = useState({ temp: "--", desc: "날씨 확인중" });
             const [settings, setSettings] = useState({ 
-                userName: '나의 이름', characterName: '히요리', apiKey: '', persona: '', profileImg: '',
-                replyMode: '바로', fixedDelay: 10, randomMin: 5, randomMax: 30, hasSeenGuide: false
+                userName: '나의 이름', characterName: '캐릭터 이름', apiKey: '', persona: '', profileImg: '',
+                replyMode: '바로', fixedDelay: 0, randomMin: 5, randomMax: 30, hasSeenGuide: false
             });
             const [showGuide, setShowGuide] = useState(false);
-            const [advice, setAdvice] = useState('반가워! 오늘 하루는 어땠어? ✨');
+            const [advice, setAdvice] = useState('오늘 하루는 어땠어? ✨');
             const [selectedLetter, setSelectedLetter] = useState(null);
             const [calendarDate, setCalendarDate] = useState(new Date());
 
+            // 날씨 로드
             const fetchWeather = useCallback(() => {
                 if (navigator.geolocation) {
                     navigator.geolocation.getCurrentPosition(async (pos) => {
@@ -100,54 +82,56 @@
                             const res = await fetch(`https://api.openweathermap.org/data/2.5/weather?lat=${pos.coords.latitude}&lon=${pos.coords.longitude}&appid=${WEATHER_API_KEY}&units=metric&lang=kr`);
                             const wData = await res.json();
                             setWeatherInfo({ temp: Math.round(wData.main.temp), desc: wData.weather[0].description });
-                        } catch (e) { console.error("Weather Error"); }
+                        } catch (e) {}
                     });
                 }
             }, []);
 
-            const loadData = useCallback(async (uid) => {
-                const [l, t, f] = await Promise.all([
-                    db.collection('users').doc(uid).collection('letters').orderBy('date', 'desc').get(),
-                    db.collection('users').doc(uid).collection('trackers').orderBy('date', 'desc').get(),
-                    db.collection('users').doc(uid).collection('fortunes').orderBy('date', 'desc').get()
-                ]);
-                setData({
-                    letters: l.docs.map(d => ({id: d.id, ...d.data()})),
-                    trackers: t.docs.map(d => ({id: d.id, ...d.data()})),
-                    fortunes: f.docs.map(d => ({id: d.id, ...d.data()}))
-                });
-            }, []);
-
+            // 실시간 데이터 구독 (onSnapshot)
             useEffect(() => {
-                const unsub = auth.onAuthStateChanged(async (u) => {
+                const unsubAuth = auth.onAuthStateChanged(async (u) => {
                     if (u) {
                         setUser(u);
-                        const doc = await db.collection('users').doc(u.uid).get();
-                        if (doc.exists) {
-                            const saved = doc.data().settings;
-                            setSettings(prev => ({...prev, ...saved}));
-                            if (!saved.hasSeenGuide) setShowGuide(true);
+                        // 설정 로드
+                        const setDoc = await db.collection('users').doc(u.uid).get();
+                        if (setDoc.exists) {
+                            setSettings(prev => ({...prev, ...setDoc.data().settings}));
+                            if (!setDoc.data().settings.hasSeenGuide) setShowGuide(true);
                         } else { setActiveTab('settings'); setShowGuide(true); }
-                        await loadData(u.uid);
+
+                        // 실시간 편지 목록 구독
+                        const unsubLetters = db.collection('users').doc(u.uid).collection('letters')
+                            .orderBy('date', 'desc')
+                            .onSnapshot(snap => {
+                                setData(prev => ({...prev, letters: snap.docs.map(d => ({id: d.id, ...d.data()}))}));
+                            }, err => console.error("인덱스 오류 가능성:", err));
+
+                        // 실시간 기록/운세 구독
+                        const unsubTrackers = db.collection('users').doc(u.uid).collection('trackers').orderBy('date', 'desc').onSnapshot(snap => {
+                            setData(prev => ({...prev, trackers: snap.docs.map(d => ({id: d.id, ...d.data()}))}));
+                        });
+                        const unsubFortunes = db.collection('users').doc(u.uid).collection('fortunes').orderBy('date', 'desc').onSnapshot(snap => {
+                            setData(prev => ({...prev, fortunes: snap.docs.map(d => ({id: d.id, ...d.data()}))}));
+                        });
+
                         fetchWeather();
+                        return () => { unsubLetters(); unsubTrackers(); unsubFortunes(); };
                     } else setUser(null);
                 });
-                return unsub;
-            }, [loadData, fetchWeather]);
+                return unsubAuth;
+            }, [fetchWeather]);
 
-            const callAI = async (msg, base64Image = null) => {
-                if(!settings.apiKey) return "API 키를 설정에서 등록해주세요.";
+            const callAI = async (msg, extra = "") => {
+                if(!settings.apiKey) return "API 키를 등록해주세요.";
                 try {
-                    let content = [{ type: "text", text: msg }];
-                    if (base64Image) content.push({ type: "image_url", image_url: { url: base64Image } });
                     const res = await fetch("https://api.openai.com/v1/chat/completions", {
                         method: "POST",
                         headers: { "Authorization": `Bearer ${settings.apiKey}`, "Content-Type": "application/json" },
                         body: JSON.stringify({ 
                             model: "gpt-4o", 
                             messages: [
-                                { role: "system", content: `당신은 ${settings.characterName}입니다. 현재 날씨는 ${weatherInfo.desc}입니다. 페르소나를 유지하며 다정하게 답장하세요. [페르소나]: ${settings.persona}` },
-                                { role: "user", content: content }
+                                { role: "system", content: `당신은 ${settings.characterName}입니다. [페르소나]: ${settings.persona}. 말투를 200% 유지하세요.` },
+                                { role: "user", content: msg + extra }
                             ]
                         })
                     });
@@ -174,10 +158,10 @@
                     
                     <div className="main-content">
                         {activeTab === 'today' && <Dashboard data={data} settings={settings} advice={advice} setAdvice={setAdvice} callAI={callAI} weather={weatherInfo} />}
-                        {activeTab === 'tracker' && <TrackerWrite user={user} loadData={() => loadData(user.uid)} onGoCalendar={() => setActiveTab('calendar')} />}
-                        {activeTab === 'write' && <LetterWrite user={user} settings={settings} trackers={data.trackers} loadData={() => loadData(user.uid)} callAI={callAI} STAMP_LIST={STAMP_LIST} />}
-                        {activeTab === 'calendar' && <CalendarView data={data} viewDate={calendarDate} setViewDate={setCalendarDate} onLetterClick={setSelectedLetter} onDelete={(id) => { if(confirm("삭제하시겠습니까?")) db.collection('users').doc(user.uid).collection('letters').doc(id).delete().then(()=>loadData(user.uid)); }} />}
-                        {activeTab === 'fortune' && <FortuneView user={user} settings={settings} data={data} loadData={() => loadData(user.uid)} callAI={callAI} />}
+                        {activeTab === 'tracker' && <TrackerWrite user={user} weatherNow={weatherInfo.desc} />}
+                        {activeTab === 'write' && <LetterWrite user={user} settings={settings} callAI={callAI} STAMP_LIST={STAMP_LIST} />}
+                        {activeTab === 'calendar' && <CalendarView data={data} viewDate={calendarDate} setViewDate={setCalendarDate} onLetterClick={setSelectedLetter} onDelete={(id) => { if(confirm("삭제하시겠습니까?")) db.collection('users').doc(user.uid).collection('letters').doc(id).delete(); }} />}
+                        {activeTab === 'fortune' && <FortuneView user={user} callAI={callAI} data={data} />}
                         {activeTab === 'settings' && <SettingsView user={user} settings={settings} setSettings={setSettings} onSave={()=>setActiveTab('today')} />}
                     </div>
 
@@ -209,60 +193,74 @@
         const Dashboard = ({ data, settings, advice, setAdvice, callAI, weather }) => {
             const lastL = data.letters[0];
             const isDelivered = lastL ? new Date() >= new Date(lastL.deliverAt) : true;
+            
+            const yesterdayRecord = useMemo(() => {
+                const yest = new Date(); yest.setDate(yest.getDate() - 1);
+                return data.trackers.find(t => new Date(t.date).toDateString() === yest.toDateString());
+            }, [data.trackers]);
+
+            const briefing = useMemo(() => {
+                if (!yesterdayRecord) return "어제는 기록을 남기지 않았더라! 오늘은 꼭 기록해줘.";
+                return `어제는 기분이 ${STEP_TITLES.mood[yesterdayRecord.mood-1]}, 컨디션은 ${STEP_TITLES.condition[yesterdayRecord.condition-1]}이었다고 적었네!`;
+            }, [yesterdayRecord]);
+
             return (
                 <div className="p-6 space-y-6">
-                    <div className="ddb-card flex gap-4 items-center">
-                        <img src={settings.profileImg || 'https://via.placeholder.com/100'} className="w-14 h-14 rounded-full border-2 border-[#8D6E63] object-cover shadow-sm" />
-                        <div className="flex-1">
+                    <div className="ddb-card flex gap-4 items-start">
+                        <img src={settings.profileImg || 'https://via.placeholder.com/100'} className="w-14 h-14 rounded-full border-2 border-[#8D6E63] object-cover mt-1" />
+                        <div className="flex-1 space-y-3">
                             <h4 className="font-bold text-[#8D6E63]">{settings.characterName}</h4>
-                            <p className="text-sm mt-1 whitespace-pre-wrap">{lastL ? (isDelivered ? lastL.reply : "답장을 적고 있어..") : `오늘 ${weather.desc}네! 기분은 어때?`}</p>
+                            <div className="text-sm bg-[#fdfaf3] p-3 rounded-2xl border border-orange-50 italic">
+                                "{lastL && isDelivered ? lastL.reply : "오늘도 만나서 반가워! 편지 기다릴게."}"
+                            </div>
+                            <p className="text-xs">지금 날씨는 <b>{weather.desc}</b>, 온도는 <b>{weather.temp}도</b>야!</p>
+                            <div className="bg-gray-50 p-3 rounded-xl text-[11px] text-gray-500 border border-gray-100">
+                                <span className="font-bold text-[#8D6E63] block mb-1">어제의 기록 브리핑 📝</span>
+                                {briefing}
+                            </div>
                         </div>
                     </div>
-                    <div className="p-6 bg-[#EFEBE9] rounded-[24px] space-y-3">
+                    <div className="p-6 bg-[#EFEBE9] rounded-[28px] space-y-3">
                         <h5 className="text-[#8D6E63] font-bold text-xs"><i className="fa-solid fa-lightbulb"></i> {settings.characterName}의 조언</h5>
-                        <p className="text-sm leading-relaxed italic whitespace-pre-wrap">"{advice}"</p>
-                        <button onClick={async ()=>{setAdvice("생약 중.."); setAdvice(await callAI("오늘 하루를 위한 다정한 조언 한마디 해줘."));}} className="text-[10px] text-white bg-[#8D6E63] px-3 py-1 rounded-full">새로고침</button>
+                        <p className="text-sm italic">"{advice}"</p>
+                        <button onClick={async ()=>{setAdvice("생각 중.."); setAdvice(await callAI(`오늘 날씨는 ${weather.desc}야. 상황에 맞는 아주 짧고 다정한 조언 한마디 해줘.`));}} className="text-[10px] text-white bg-[#8D6E63] px-4 py-1.5 rounded-full">새로고침</button>
                     </div>
-                    <div className="ddb-card"><h5 className="text-purple-500 font-bold text-xs mb-2">오늘의 운세 요약</h5><p className="text-sm whitespace-pre-wrap leading-relaxed">{data.fortunes[0]?.content || "운세 탭을 확인해봐!"}</p></div>
                 </div>
             );
         };
 
-        const TrackerWrite = ({ user, loadData, onGoCalendar }) => {
-            const [form, setForm] = useState({ sleep: 7, mood: 3, condition: 3, exercise: 3, weather: 3 });
-            const save = async () => { await db.collection('users').doc(user.uid).collection('trackers').add({...form, date: new Date().toISOString()}); alert("저장 완료!"); loadData(); };
+        const TrackerWrite = ({ user, weatherNow }) => {
+            const [form, setForm] = useState({ sleep: 7, mood: 3, condition: 3, exercise: 1, weather: 3 });
+            const save = async () => { await db.collection('users').doc(user.uid).collection('trackers').add({...form, date: new Date().toISOString()}); alert("저장 완료!"); };
             
-            const StepRow = ({ label, icon, field }) => (
-                <div className="flex justify-between items-center border-b border-gray-50 pb-4">
-                    <span className="opacity-60 text-sm">{icon} {label}</span>
-                    <div className="flex gap-1">
-                        {[1,2,3,4,5].map(v => (
-                            <button key={v} onClick={()=>setForm({...form, [field]: v})} className={`step-btn ${form[field] === v ? 'active' : ''}`}>{v}</button>
-                        ))}
-                    </div>
-                </div>
-            );
-
             return (
                 <div className="p-6 space-y-6">
                     <h2 className="text-xl font-bold text-center text-[#8D6E63] mt-4 font-serif">오늘의 기록</h2>
-                    <div className="ddb-card space-y-6">
-                        <StepRow label="기분" icon="☁️" field="mood" />
-                        <StepRow label="컨디션" icon="🌡️" field="condition" />
-                        <StepRow label="운동" icon="🏃" field="exercise" />
-                        <StepRow label="날씨" icon="☀️" field="weather" />
+                    <div className="ddb-card space-y-5">
+                        {Object.keys(STEP_TITLES).map(key => (
+                            <div key={key} className="space-y-2 border-b border-gray-50 pb-3">
+                                <div className="flex justify-between text-xs font-bold opacity-60 px-1">
+                                    <span>{key==='mood'?'기분':key==='condition'?'컨디션':key==='exercise'?'운동':'날씨'}</span>
+                                    <span className="text-[#8D6E63]">{STEP_TITLES[key][form[key]-1]}</span>
+                                </div>
+                                <div className="flex justify-between gap-1">
+                                    {STEP_TITLES[key].map((t, i) => (
+                                        <button key={i} onClick={()=>setForm({...form, [key]: i+1})} className={`step-btn flex-1 ${form[key]===i+1?'active':''}`}>{t}</button>
+                                    ))}
+                                </div>
+                            </div>
+                        ))}
                         <div className="pt-2">
-                            <div className="flex justify-between mb-2"><span className="text-sm opacity-60">🌙 수면 시간</span><span className="font-bold text-[#8D6E63]">{form.sleep}h</span></div>
+                            <div className="flex justify-between text-xs font-bold mb-2"><span>🌙 수면 시간</span><span className="text-[#8D6E63]">{form.sleep}h</span></div>
                             <input type="range" min="0" max="12" step="0.5" className="w-full accent-[#8D6E63]" value={form.sleep} onChange={e=>setForm({...form, sleep: e.target.value})} />
                         </div>
                     </div>
-                    <button onClick={save} className="w-full bg-[#8D6E63] text-white py-5 rounded-2xl font-bold shadow-lg">기록 저장하기</button>
-                    <button onClick={onGoCalendar} className="w-full bg-white border py-4 rounded-2xl text-gray-400 text-xs font-bold shadow-sm">📅 기록 달력 보기</button>
+                    <button onClick={save} className="w-full bg-[#8D6E63] text-white py-5 rounded-2xl font-bold shadow-lg">저장하기</button>
                 </div>
             );
         };
 
-        const LetterWrite = ({ user, settings, loadData, callAI, STAMP_LIST }) => {
+        const LetterWrite = ({ user, settings, STAMP_LIST, callAI }) => {
             const [text, setText] = useState('');
             const [loading, setLoading] = useState(false);
             const [image, setImage] = useState(null);
@@ -270,12 +268,26 @@
             const send = async () => {
                 if(!text.trim() || !settings.apiKey) return alert("내용 또는 API 키를 확인해줘!");
                 setLoading(true);
-                const reply = await callAI(text, image);
+                
+                // 1. 먼저 사용자의 편지를 저장 (답장은 비워둠)
+                const stampImg = STAMP_LIST[Math.floor(Math.random() * STAMP_LIST.length)];
                 let delay = settings.replyMode === 'n분후' ? parseInt(settings.fixedDelay) : settings.replyMode === '랜덤범위' ? Math.floor(Math.random()*(parseInt(settings.randomMax)-parseInt(settings.randomMin)+1))+parseInt(settings.randomMin) : 0;
                 const deliverAt = new Date(new Date().getTime() + delay * 60000).toISOString();
-                const stampImg = STAMP_LIST[Math.floor(Math.random() * STAMP_LIST.length)];
-                await db.collection('users').doc(user.uid).collection('letters').add({ content: text, reply, date: new Date().toISOString(), deliverAt, stampImg, attachedImg: image });
-                setText(''); setImage(null); loadData(user.uid); setLoading(false); alert("편지를 보냈어!");
+                
+                const docRef = await db.collection('users').doc(user.uid).collection('letters').add({ 
+                    content: text, reply: "", date: new Date().toISOString(), deliverAt, stampImg, attachedImg: image 
+                });
+
+                alert("편지를 보냈어! 친구의 답장을 기다려줘.");
+                setText(''); setImage(null);
+
+                // 2. 백그라운드에서 AI 답장 생성 후 업데이트
+                try {
+                    const aiReply = await callAI(text, image ? "\n[사진이 첨부되었습니다. 사진 내용을 언급해주세요]" : "");
+                    await docRef.update({ reply: aiReply });
+                } catch(e) { console.error("AI 답장 실패"); }
+                
+                setLoading(false);
             };
 
             return (
@@ -287,8 +299,8 @@
                         </label>
                     </div>
                     <h2 className="text-center font-bold text-[#8D6E63] mb-4 text-lg">To. {settings.characterName}</h2>
-                    <div className="flex-1 bg-white rounded-[32px] p-8 shadow-sm border border-[#8D6E6311]"><textarea className="lined-paper focus:outline-none" value={text} onChange={e=>setText(e.target.value)} placeholder="편지를 적어주세요.." /></div>
-                    <button onClick={send} disabled={loading} className="w-full bg-[#8D6E63] text-white py-5 rounded-[24px] font-bold shadow-lg mt-6">{loading ? "보내는 중..." : "편지 보내기"}</button>
+                    <div className="flex-1 bg-white rounded-[32px] p-8 shadow-sm border border-[#8D6E6311]"><textarea className="lined-paper focus:outline-none" value={text} onChange={e=>setText(e.target.value)} placeholder="마음을 전해봐!" /></div>
+                    <button onClick={send} disabled={loading} className="w-full bg-[#8D6E63] text-white py-5 rounded-[24px] font-bold shadow-lg mt-6">{loading ? "전송 중..." : "편지 보내기"}</button>
                 </div>
             );
         };
@@ -298,34 +310,33 @@
             const daysInMonth = new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 0).getDate();
             const firstDay = new Date(viewDate.getFullYear(), viewDate.getMonth(), 1).getDay();
             const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-            const changeMonth = (offset) => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() + offset, 1));
 
             return (
                 <div className="p-6 space-y-6">
                     <div className="flex justify-between items-center px-4">
-                        <button onClick={()=>changeMonth(-1)} className="text-[#8D6E63] opacity-40"><i className="fa-solid fa-chevron-left"></i></button>
+                        <button onClick={()=>setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth()-1, 1))} className="opacity-40"><i className="fa-solid fa-chevron-left"></i></button>
                         <h2 className="text-lg font-bold text-[#8D6E63] uppercase font-serif">{monthNames[viewDate.getMonth()]} {viewDate.getFullYear()}</h2>
-                        <button onClick={()=>changeMonth(1)} className="text-[#8D6E63] opacity-40"><i className="fa-solid fa-chevron-right"></i></button>
+                        <button onClick={()=>setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth()+1, 1))} className="opacity-40"><i className="fa-solid fa-chevron-right"></i></button>
                     </div>
-                    <div className="ddb-card p-6"><div className="calendar-grid">
+                    <div className="ddb-card p-6 shadow-md"><div className="calendar-grid">
                         {['S','M','T','W','T','F','S'].map(d=><div key={d} className="text-[10px] text-[#D7CCC8] font-bold text-center mb-4">{d}</div>)}
                         {Array(firstDay).fill(0).map((_, i) => <div key={`e-${i}`} />)}
                         {Array.from({length: daysInMonth}, (_, i) => i + 1).map(d => {
                             const cur = new Date(viewDate.getFullYear(), viewDate.getMonth(), d);
                             const l = data.letters.find(lettr => new Date(lettr.date).toDateString() === cur.toDateString());
                             return (
-                                <div key={d} onClick={() => setSelectedDate(cur)} className={`aspect-square flex items-center justify-center relative cursor-pointer ${selectedDate.toDateString()===cur.toDateString() ? 'bg-gray-100 rounded-xl' : ''}`}>
+                                <div key={d} onClick={() => setSelectedDate(cur)} className={`aspect-square flex items-center justify-center relative cursor-pointer ${selectedDate.toDateString()===cur.toDateString() ? 'bg-orange-50 rounded-xl' : ''}`}>
                                     <span className="day-number">{d}</span>
-                                    {l && <img src={l.stampImg} className="stamp-img" />}
+                                    {l && <img src={l.stampImg} className="stamp-img opacity-80" />}
                                 </div>
                             );
                         })}
                     </div></div>
                     <div className="space-y-3 pb-4">
-                        <h5 className="text-[10px] font-bold opacity-30 tracking-widest px-2 uppercase">편지 목록</h5>
+                        <h5 className="text-[10px] font-bold opacity-30 tracking-widest px-2 uppercase">주고받은 편지</h5>
                         {data.letters.filter(l => new Date(l.date).toDateString() === selectedDate.toDateString()).map(l => (
                             <div key={l.id} className="bg-white p-4 rounded-2xl shadow-sm border-l-4 border-[#8D6E63] flex justify-between items-center">
-                                <div onClick={()=>onLetterClick(l)} className="flex-1 truncate italic text-sm">"{l.reply || "배달 중.."}"</div>
+                                <div onClick={()=>onLetterClick(l)} className="flex-1 truncate italic text-sm">"{l.reply || "답장을 기다리는 중.."}"</div>
                                 <button onClick={()=>onDelete(l.id)} className="text-red-100 p-2"><i className="fa-solid fa-trash-can"></i></button>
                             </div>
                         ))}
@@ -339,46 +350,39 @@
             const saveAsImage = async () => {
                 const canvas = await html2canvas(printRef.current, { backgroundColor: '#F7F4EB', scale: 2 });
                 const link = document.createElement('a');
-                link.download = `penpal-${new Date().getTime()}.png`;
-                link.href = canvas.toDataURL();
-                link.click();
+                link.download = `diary-${Date.now()}.png`;
+                link.href = canvas.toDataURL(); link.click();
             };
-
             return (
-                <div className="guide-overlay" style={{background:'#F7F4EB', padding:0}}>
-                    <div className="p-6 space-y-6 w-full h-full overflow-y-auto">
-                        <div className="flex justify-between items-center">
-                            <button onClick={onClose} className="font-bold text-[#8D6E63]"><i className="fa-solid fa-arrow-left"></i> 뒤로가기</button>
-                            <button onClick={saveAsImage} className="text-xs bg-[#8D6E63] text-white px-3 py-1 rounded-full shadow-md">이미지 저장</button>
+                <div className="guide-overlay" style={{background:'#F7F4EB', padding:0}}><div className="p-6 space-y-6 w-full h-full overflow-y-auto">
+                    <div className="flex justify-between items-center"><button onClick={onClose} className="font-bold text-[#8D6E63] p-2"><i className="fa-solid fa-arrow-left"></i> 뒤로가기</button><button onClick={saveAsImage} className="text-xs bg-[#8D6E63] text-white px-4 py-1.5 rounded-full shadow-md">이미지 저장</button></div>
+                    <div ref={printRef} className="p-2 space-y-6 bg-[#F7F4EB]">
+                        <div className="ddb-card space-y-3">
+                            <h3 className="text-[10px] opacity-40 uppercase font-bold tracking-widest">My Letter</h3>
+                            {letter.attachedImg && <img src={letter.attachedImg} className="w-full rounded-2xl shadow-sm" />}
+                            <p className="letter-text whitespace-pre-wrap">{letter.content}</p>
                         </div>
-                        <div ref={printRef} className="p-2 space-y-6 bg-[#F7F4EB]">
-                            <div className="ddb-card space-y-3">
-                                <h3 className="text-[10px] opacity-40 uppercase font-bold tracking-widest">My Letter</h3>
-                                {letter.attachedImg && <img src={letter.attachedImg} className="w-full rounded-2xl shadow-sm" />}
-                                <p className="letter-text whitespace-pre-wrap">{letter.content}</p>
-                            </div>
-                            <div className="ddb-card space-y-4 bg-[#fffdf9] border border-orange-50">
-                                <div className="flex justify-between items-start"><h3 className="text-[10px] text-[#8D6E63] uppercase font-bold tracking-widest">{characterName}'s Reply</h3><img src={letter.stampImg} className="w-16 h-16 object-contain rotate-6 drop-shadow-md" /></div>
-                                <p className="letter-text italic text-[#5D4037] whitespace-pre-wrap">"{letter.reply}"</p>
-                            </div>
+                        <div className="ddb-card space-y-4 bg-[#fffdf9] border border-orange-50">
+                            <div className="flex justify-between items-start"><h3 className="text-[10px] text-[#8D6E63] uppercase font-bold tracking-widest">{characterName}'s Reply</h3><img src={letter.stampImg} className="w-16 h-16 object-contain rotate-6 drop-shadow-md" /></div>
+                            <p className="letter-text italic text-[#5D4037] whitespace-pre-wrap font-medium">"{letter.reply || '답장을 기다리는 중이야..'}"</p>
                         </div>
                     </div>
-                </div>
+                </div></div>
             );
         };
 
-        const FortuneView = ({ user, settings, data, loadData, callAI }) => {
+        const FortuneView = ({ user, callAI, data }) => {
             const [loading, setLoading] = useState(false);
             const getF = async () => {
                 setLoading(true);
                 const res = await callAI("내 오늘 운세를 점쳐줘. 아주 정성스럽고 다정하게!");
                 await db.collection('users').doc(user.uid).collection('fortunes').add({content: res, date: new Date().toISOString()});
-                loadData(user.uid); setLoading(false);
+                setLoading(false);
             };
             return (
                 <div className="p-6 space-y-6 text-center h-full flex flex-col items-center">
                     <h2 className="text-2xl font-bold text-[#8D6E63] mt-10 font-serif">🔮 오늘의 운세</h2>
-                    {data.fortunes[0] ? (
+                    {data.fortunes[0] && new Date(data.fortunes[0].date).toDateString() === new Date().toDateString() ? (
                         <div className="ddb-card text-left text-sm whitespace-pre-wrap w-full animate-in fade-in leading-relaxed">{data.fortunes[0].content}<button onClick={getF} className="w-full text-[#8D6E63] font-bold mt-10 pt-6 border-t text-xs">다시 점치기</button></div>
                     ) : <button onClick={getF} disabled={loading} className="bg-[#8D6E63] text-white w-40 h-40 rounded-full shadow-2xl font-bold text-xl mt-20 active:scale-95 transition">{loading ? "..." : "점치기"}</button>}
                 </div>
@@ -386,14 +390,10 @@
         };
 
         const SettingsView = ({ user, settings, setSettings, onSave }) => {
-            const save = async () => { 
-                await db.collection('users').doc(user.uid).set({ settings }, { merge: true }); 
-                alert("설정이 저장되었습니다!"); 
-                onSave(); 
-            };
+            const save = async () => { await db.collection('users').doc(user.uid).set({ settings }, { merge: true }); alert("설정이 저장되었습니다!"); onSave(); };
             return (
                 <div className="p-6 space-y-6">
-                    <h2 className="text-xl font-bold text-center text-[#8D6E63] font-serif">환경 설정</h2>
+                    <h2 className="text-xl font-bold text-center text-[#8D6E63] font-serif tracking-widest uppercase">Settings</h2>
                     <div className="ddb-card space-y-6">
                         <div className="flex flex-col items-center gap-4">
                             <img src={settings.profileImg || 'https://via.placeholder.com/100'} className="w-20 h-20 rounded-full border-2 border-[#8D6E6322] object-cover" />
@@ -414,4 +414,4 @@
         ReactDOM.createRoot(document.getElementById('root')).render(<App />);
     </script>
 </body>
-</html>ㄹ
+</html>
