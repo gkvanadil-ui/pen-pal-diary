@@ -25,7 +25,6 @@
         .bottom-nav { position: absolute; bottom: 0; width: 100%; height: calc(80px + env(safe-area-inset-bottom)); background: white; display: flex; justify-content: space-around; align-items: flex-start; padding-top: 15px; border-top: 1px solid #eee; z-index: 100; padding-bottom: env(safe-area-inset-bottom); }
         .ddb-card { background: white; border-radius: 28px; padding: 20px; box-shadow: 0 4px 15px rgba(141, 110, 99, 0.06); width: 100%; }
         
-        /* ✅ 편지 쓰기 폰트 축소 (20px -> 17px) */
         .lined-paper { 
             background-image: linear-gradient(transparent 34px, rgba(141, 110, 99, 0.1) 35px); 
             background-size: 100% 35px; 
@@ -40,13 +39,10 @@
         .day-number { z-index: 10; font-weight: 800; color: #5D4037; text-shadow: -1.5px -1.5px 0 #fff, 1.5px -1.5px 0 #fff, -1.5px 1.5px 0 #fff, 1.5px 1.5px 0 #fff; }
         .stamp-img { width: 90%; height: 90%; object-fit: contain; position: absolute; z-index: 1; }
         
-        /* ✅ 단계 버튼 폰트 최적화 */
         .step-btn { padding: 6px 2px; border-radius: 10px; border: 1px solid #eee; font-size: 9px; transition: 0.2s; background: #fcfcfc; color: #999; text-align: center; }
         .step-btn.active { background: #8D6E63; color: white; border-color: #8D6E63; font-weight: bold; transform: scale(1.05); }
 
         .guide-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.7); z-index: 200; display: flex; align-items: center; justify-content: center; padding: 20px; }
-        
-        /* ✅ 편지 상세 폰트 축소 (1.1rem -> 0.95rem) */
         .letter-text { font-size: 0.95rem; line-height: 1.7; word-break: keep-all; }
         
         .fade-in { animation: fadeIn 0.4s ease-in-out; }
@@ -82,7 +78,7 @@
         };
 
         const cleanStr = (s) => s ? s.replace(/^['"“]+|['"”]+$/g, '').trim() : "";
-        const truncateStr = (s, n = 140) => s.length > n ? s.slice(0, n) + "..." : s;
+        const truncateStr = (s, n = 50) => s.length > n ? s.slice(0, n) + "..." : s;
 
         const App = () => {
             const [user, setUser] = useState(null);
@@ -94,7 +90,7 @@
                 replyMode: '바로', fixedDelay: 0, randomMin: 5, randomMax: 30, hasSeenGuide: false
             });
             const [showGuide, setShowGuide] = useState(false);
-            const [advice, setAdvice] = useState('오늘 하루도 소중히 보내자! ✨');
+            const [advice, setAdvice] = useState('로딩 중..');
             const [briefing, setBriefing] = useState('어제를 생각하고 있어..');
             const [selectedLetter, setSelectedLetter] = useState(null);
             const [calendarDate, setCalendarDate] = useState(new Date());
@@ -159,7 +155,7 @@
                         const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
                         const record = data.trackers.find(t => new Date(t.date).toDateString() === yesterday.toDateString());
                         let bPrompt = record 
-                            ? `사용자의 어제 기록: 기분 ${STEP_TITLES.mood[record.mood-1]}, 컨디션 ${STEP_TITLES.condition[record.condition-1]}, 수면 ${record.sleep}시간. 이 내용을 바탕으로 네 성격대로 짧게 브리핑해줘.`
+                            ? `사용자의 어제 기록: 기분 ${STEP_TITLES.mood[record.mood-1]}, 컨디션 ${STEP_TITLES.condition[record.condition-1]}, 운동 ${STEP_TITLES.exercise[record.exercise-1]}, 수면 ${record.sleep}시간. 이 내용을 바탕으로 네 성격대로 짧게 브리핑해줘.`
                             : `사용자가 어제 건강 기록을 남기지 않았어. 네 캐릭터 성격에 맞춰서 왜 기록 안했냐고 귀엽게 한마디 하거나 서운해해줘.`;
                         let aPrompt = `오늘 날씨는 ${weatherInfo.desc}야. 네 페르소나에 맞춰서 사용자에게 다정한 조언 한마디 해줘.`;
                         const [bRes, aRes] = await Promise.all([
@@ -186,7 +182,7 @@
                     
                     <div className="main-content">
                         {activeTab === 'today' && <Dashboard data={data} settings={settings} advice={advice} setAdvice={setAdvice} callAI={callAI} weather={weatherInfo} briefing={briefing} />}
-                        {activeTab === 'tracker' && <TrackerWrite user={user} />}
+                        {activeTab === 'tracker' && <TrackerWrite user={user} trackers={data.trackers} />}
                         {activeTab === 'write' && <LetterWrite user={user} settings={settings} callAI={callAI} STAMP_LIST={STAMP_LIST} />}
                         {activeTab === 'calendar' && <CalendarView data={data} viewDate={calendarDate} setViewDate={setCalendarDate} onLetterClick={setSelectedLetter} onDelete={(id, type) => { if(confirm("삭제하시겠습니까?")) db.collection('users').doc(user.uid).collection(type === 'letter' ? 'letters' : 'trackers').doc(id).delete(); }} />}
                         {activeTab === 'fortune' && <FortuneView user={user} callAI={callAI} data={data} />}
@@ -207,13 +203,12 @@
             );
         };
 
-        /* ✅ 오늘 탭 (기존 폰트 유지) */
         const Dashboard = ({ data, settings, advice, setAdvice, callAI, weather, briefing }) => {
             const lastL = data.letters[0];
             const isDelivered = lastL ? new Date() >= new Date(lastL.deliverAt) : true;
             const replyPreview = useMemo(() => {
                 if (!lastL || !isDelivered || !lastL.reply) return "오늘도 만나서 반가워! 편지 기다릴게.";
-                return truncateStr(lastL.reply, 140);
+                return truncateStr(lastL.reply, 50);
             }, [lastL, isDelivered]);
 
             return (
@@ -221,50 +216,93 @@
                     <div className="ddb-card flex gap-4 items-start border-l-4 border-[#8D6E63]">
                         <img src={settings.profileImg || 'https://via.placeholder.com/100'} className="w-14 h-14 rounded-full border-2 border-[#8D6E63] object-cover mt-1" />
                         <div className="flex-1 space-y-2">
-                            <h4 className="font-bold text-[#8D6E63]">{settings.characterName}</h4>
+                            <h4 className="font-bold text-[#8D6E63] text-sm">{settings.characterName}</h4>
                             <div className="text-sm bg-[#fdfaf3] p-3 rounded-xl italic leading-relaxed whitespace-pre-wrap">"{cleanStr(replyPreview)}"</div>
-                            <p className="text-[11px] opacity-60">현재 날씨: {weather.desc} ({weather.temp}°C)</p>
+                            <p className="text-[11px] opacity-60 font-bold">현재 날씨: {weather.desc} ({weather.temp}°C)</p>
                         </div>
                     </div>
                     <div className="ddb-card bg-gray-50 border border-gray-100 p-4">
-                        <h5 className="text-[11px] font-bold text-[#8D6E63] uppercase tracking-widest mb-2">Yesterday Briefing 📝</h5>
-                        <p className="text-sm leading-relaxed text-gray-600">"{cleanStr(briefing)}"</p>
+                        <h5 className="text-[11px] font-bold text-[#8D6E63] uppercase tracking-widest mb-2 font-serif">YESTERDAY BRIEFING 📝</h5>
+                        <p className="text-sm leading-relaxed text-gray-600 italic">"{cleanStr(briefing)}"</p>
                     </div>
-                    <div className="p-6 bg-[#EFEBE9] rounded-[28px] space-y-3">
+                    <div className="p-6 bg-[#EFEBE9] rounded-[28px] space-y-3 shadow-sm border border-[#8D6E6311]">
                         <h5 className="text-[#8D6E63] font-bold text-xs"><i className="fa-solid fa-lightbulb"></i> {settings.characterName}의 조언</h5>
                         <p className="text-sm italic font-medium whitespace-pre-wrap leading-relaxed">"{cleanStr(advice)}"</p>
-                        <button onClick={async ()=>{setAdvice("생각 중.."); setAdvice(await callAI(`오늘 날씨는 ${weather.desc}야. 네 말투로 짧게 조언 한마디 해줘.`));}} className="text-[10px] text-white bg-[#8D6E63] px-4 py-1.5 rounded-full shadow-sm active:scale-95 transition">새로고침</button>
+                        <button onClick={async ()=>{setAdvice("생각 중.."); setAdvice(await callAI(`오늘 날씨는 ${weather.desc}야. 네 말투로 짧게 조언 한마디 해줘.`));}} className="text-[10px] text-white bg-[#8D6E63] px-4 py-1.5 rounded-full shadow-sm">새로고침</button>
                     </div>
                     <div className="ddb-card border border-purple-50">
-                        <h5 className="text-purple-500 font-bold text-xs mb-2 uppercase tracking-widest">Today's Fortune ✨</h5>
-                        <p className="text-sm leading-relaxed whitespace-pre-wrap">{truncateStr(cleanStr(data.fortunes[0]?.content || "아직 운세가 없어!"), 140)}</p>
+                        <h5 className="text-purple-500 font-bold text-xs mb-2 uppercase tracking-widest font-serif">TODAY'S FORTUNE ✨</h5>
+                        <p className="text-sm leading-relaxed whitespace-pre-wrap">{truncateStr(cleanStr(data.fortunes[0]?.content || "아직 운세가 없어!"), 50)}</p>
                     </div>
                 </div>
             );
         };
 
-        /* ✅ 기록 탭 (폰트 사이즈 text-lg/text-xs로 축소) */
-        const TrackerWrite = ({ user }) => {
+        /* ✅ 기록 탭 수정: 모아보기 모달/리스트 기능 추가 */
+        const TrackerWrite = ({ user, trackers }) => {
             const [form, setForm] = useState({ sleep: 7, mood: 3, condition: 3, exercise: 1, weather: 3 });
-            const save = async () => { await db.collection('users').doc(user.uid).collection('trackers').add({...form, date: new Date().toISOString()}); alert("오늘의 기록이 저장되었습니다!"); };
+            const [showHistory, setShowHistory] = useState(false); // 모아보기 상태
+
+            const save = async () => { 
+                await db.collection('users').doc(user.uid).collection('trackers').add({...form, date: new Date().toISOString()}); 
+                alert("오늘의 기록이 저장되었습니다!"); 
+            };
+
+            const deleteRecord = async (id) => {
+                if(confirm("이 기록을 삭제할까요?")) {
+                    await db.collection('users').doc(user.uid).collection('trackers').doc(id).delete();
+                }
+            };
+
             return (
                 <div className="p-6 space-y-6">
                     <h2 className="text-lg font-bold text-center text-[#8D6E63] mt-4 font-serif">오늘의 기록</h2>
-                    <div className="ddb-card space-y-4">
-                        {Object.keys(STEP_TITLES).map(key => (
-                            <div key={key} className="space-y-2 border-b border-gray-50 pb-3">
-                                <div className="flex justify-between text-[11px] font-bold opacity-60 px-1"><span>{key==='mood'?'기분':key==='condition'?'컨디션':key==='exercise'?'운동':'날씨'}</span><span className="text-[#8D6E63]">{STEP_TITLES[key][form[key]-1]}</span></div>
-                                <div className="flex justify-between gap-1">{STEP_TITLES[key].map((t, i) => (<button key={i} onClick={()=>setForm({...form, [key]: i+1})} className={`step-btn flex-1 ${form[key]===i+1?'active':''}`}>{t}</button>))}</div>
+                    
+                    {!showHistory ? (
+                        <div className="space-y-6 fade-in">
+                            <div className="ddb-card space-y-4">
+                                {Object.keys(STEP_TITLES).map(key => (
+                                    <div key={key} className="space-y-2 border-b border-gray-50 pb-3">
+                                        <div className="flex justify-between text-[11px] font-bold opacity-60 px-1">
+                                            <span>{key==='mood'?'기분':key==='condition'?'컨디션':key==='exercise'?'운동':'날씨'}</span>
+                                            <span className="text-[#8D6E63]">{STEP_TITLES[key][form[key]-1]}</span>
+                                        </div>
+                                        <div className="flex justify-between gap-1">
+                                            {STEP_TITLES[key].map((t, i) => (<button key={i} onClick={()=>setForm({...form, [key]: i+1})} className={`step-btn flex-1 ${form[key]===i+1?'active':''}`}>{t}</button>))}
+                                        </div>
+                                    </div>
+                                ))}
+                                <div className="pt-2"><div className="flex justify-between text-[11px] font-bold mb-2 px-1"><span>🌙 수면 시간</span><span className="font-bold text-[#8D6E63]">{form.sleep}h</span></div><input type="range" min="0" max="12" step="0.5" className="w-full accent-[#8D6E63]" value={form.sleep} onChange={e=>setForm({...form, sleep: e.target.value})} /></div>
                             </div>
-                        ))}
-                        <div className="pt-2"><div className="flex justify-between text-[11px] font-bold mb-2 px-1"><span>🌙 수면 시간</span><span className="font-bold text-[#8D6E63]">{form.sleep}h</span></div><input type="range" min="0" max="12" step="0.5" className="w-full accent-[#8D6E63]" value={form.sleep} onChange={e=>setForm({...form, sleep: e.target.value})} /></div>
-                    </div>
-                    <button onClick={save} className="w-full bg-[#8D6E63] text-white py-4 rounded-2xl font-bold shadow-lg text-sm">기록 저장하기</button>
+                            <div className="space-y-3">
+                                <button onClick={save} className="w-full bg-[#8D6E63] text-white py-4 rounded-2xl font-bold shadow-lg text-sm active:scale-95 transition">기록 저장하기</button>
+                                <button onClick={() => setShowHistory(true)} className="w-full bg-white border border-[#8D6E6333] text-[#8D6E63] py-4 rounded-2xl font-bold text-sm active:scale-95 transition">기록 모아보기</button>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="space-y-4 fade-in">
+                            <div className="flex justify-between items-center px-2 mb-2">
+                                <h3 className="text-sm font-bold text-[#8D6E63]">전체 기록 리스트</h3>
+                                <button onClick={() => setShowHistory(false)} className="text-xs opacity-50"><i className="fa-solid fa-xmark mr-1"></i>닫기</button>
+                            </div>
+                            <div className="space-y-3 overflow-y-auto max-h-[60vh] pb-10">
+                                {trackers.length > 0 ? trackers.map(t => (
+                                    <div key={t.id} className="bg-white p-4 rounded-2xl shadow-sm border-l-4 border-blue-200 flex justify-between items-center">
+                                        <div className="text-[11px] space-y-1">
+                                            <p className="font-bold opacity-40">{new Date(t.date).toLocaleDateString()}</p>
+                                            <p className="text-[#5D4037]">기분: <b>{STEP_TITLES.mood[t.mood-1]}</b> | 컨디션: <b>{STEP_TITLES.condition[t.condition-1]}</b></p>
+                                            <p className="text-[#5D4037]">수면: <b>{t.sleep}h</b> | 운동: <b>{STEP_TITLES.exercise[t.exercise-1]}</b></p>
+                                        </div>
+                                        <button onClick={() => deleteRecord(t.id)} className="text-red-100 p-2 text-xs"><i className="fa-solid fa-trash-can"></i></button>
+                                    </div>
+                                )) : <p className="text-center py-10 opacity-30 text-xs">아직 저장된 기록이 없습니다.</p>}
+                            </div>
+                        </div>
+                    )}
                 </div>
             );
         };
 
-        /* ✅ 편지 쓰기 탭 (To 폰트 축소) */
         const LetterWrite = ({ user, settings, STAMP_LIST, callAI }) => {
             const [text, setText] = useState('');
             const [loading, setLoading] = useState(false);
@@ -283,7 +321,7 @@
                 }
                 const deliverAt = new Date(new Date().getTime() + delayMinutes * 60000).toISOString();
                 const docRef = await db.collection('users').doc(user.uid).collection('letters').add({ content: text, reply: "", date: new Date().toISOString(), deliverAt, stampImg, attachedImg: image });
-                alert("편지를 보냈어! 친구의 답장을 기다려줘.");
+                alert("편지를 보냈어! 답장을 기다려줘.");
                 setText(''); setImage(null);
                 try {
                     const aiReply = await callAI(text, image ? "\n[이미지 분석 후 아주 길게 답장하세요]" : "\n[문단별 빈 줄 삽입, 아주 길고 정성스러운 답장 필수]");
@@ -297,12 +335,11 @@
                     <div className="flex gap-2 mb-4"><label className="bg-white px-3 py-1.5 rounded-full shadow-sm text-[10px] text-gray-400 font-bold flex items-center gap-2 cursor-pointer border border-gray-50"><i className="fa-solid fa-camera"></i> {image ? "사진 추가됨" : "사진 추가"}<input type="file" className="hidden" accept="image/*" onChange={e => { const r = new FileReader(); r.onloadend = () => setImage(r.result); r.readAsDataURL(e.target.files[0]); }} /></label></div>
                     <h2 className="text-center font-bold text-[#8D6E63] mb-4 text-base font-serif">To. {settings.characterName}</h2>
                     <div className="flex-1 bg-white rounded-[32px] p-6 shadow-sm border border-[#8D6E6311]"><textarea className="lined-paper focus:outline-none" value={text} onChange={e=>setText(e.target.value)} placeholder="마음을 전해봐!" /></div>
-                    <button onClick={send} disabled={loading} className="w-full bg-[#8D6E63] text-white py-4 rounded-[24px] font-bold shadow-lg mt-5 text-sm">{loading ? "전송 중..." : "편지 보내기"}</button>
+                    <button onClick={send} disabled={loading} className="w-full bg-[#8D6E63] text-white py-4 rounded-2xl font-bold shadow-lg mt-5 text-sm active:scale-95 transition">{loading ? "전송 중..." : "편지 보내기"}</button>
                 </div>
             );
         };
 
-        /* ✅ 캘린더 탭 (헤더 및 목록 폰트 축소) */
         const CalendarView = ({ data, viewDate, setViewDate, onLetterClick, onDelete }) => {
             const [selectedDate, setSelectedDate] = useState(new Date());
             const daysInMonth = new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 0).getDate();
@@ -329,9 +366,9 @@
                         })}
                     </div></div>
                     <div className="space-y-2 pb-4">
-                        <h5 className="text-[9px] font-bold opacity-30 tracking-widest px-2 uppercase">History</h5>
+                        <h5 className="text-[9px] font-bold opacity-30 tracking-widest px-2 uppercase font-bold">History</h5>
                         {combinedList.map(item => (
-                            <div key={item.id} className={`bg-white p-3 rounded-2xl shadow-sm border-l-4 ${item.type==='letter'?'border-[#8D6E63]':'border-blue-200'} flex justify-between items-center`}>
+                            <div key={item.id} className={`bg-white p-3 rounded-2xl shadow-sm border-l-4 ${item.type==='letter'?'border-[#8D6E63]':'border-blue-200'} flex justify-between items-center animate-in slide-in-from-bottom-2`}>
                                 <div onClick={()=>item.type==='letter' && onLetterClick(item)} className="flex-1 truncate text-[11px] font-medium">
                                     {item.type === 'letter' ? `✉️ ${cleanStr(item.reply) || "답장 대기중.."}` : `📝 건강 기록: 기분 ${STEP_TITLES.mood[item.mood-1]}, 수면 ${item.sleep}h`}
                                 </div>
@@ -343,7 +380,6 @@
             );
         };
 
-        /* ✅ 편지 상세 (폰트 축소) */
         const LetterDetail = ({ letter, characterName, onClose }) => {
             const printRef = useRef();
             const saveAsImage = async () => {
@@ -362,12 +398,11 @@
             );
         };
 
-        /* ✅ 운세 탭 (폰트 축소) */
         const FortuneView = ({ user, callAI, data }) => {
             const [loading, setLoading] = useState(false);
             const getF = async () => {
                 setLoading(true);
-                const res = await callAI("내 오늘 운세를 점쳐줘. 아주 정성스럽고 다정하게! [지시: 따옴표 절대 금지, 문단 구분 필수]");
+                const res = await callAI("내 오늘 운세를 점쳐줘. 정성스럽게! [지시: 따옴표 절대 금지, 문단 구분 필수]");
                 await db.collection('users').doc(user.uid).collection('fortunes').add({content: res, date: new Date().toISOString()});
                 setLoading(false);
             };
@@ -381,7 +416,6 @@
             );
         };
 
-        /* ✅ 설정 탭 (폰트 축소) */
         const SettingsView = ({ user, settings, setSettings, onSave }) => {
             const save = async () => { await db.collection('users').doc(user.uid).set({ settings }, { merge: true }); alert("설정이 저장되었습니다!"); onSave(); };
             return (
